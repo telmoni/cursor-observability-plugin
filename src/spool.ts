@@ -46,6 +46,25 @@ export function append(dir: string, conversationId: string, line: Line): void {
   appendFileSync(spoolOf(dir, conversationId), `${JSON.stringify(line)}\n`, { mode: 0o600 });
 }
 
+/** Where a line begins: every line is written with its id first. */
+const LINE_START = '{"id":';
+
+function parsed(piece: string): unknown {
+  try {
+    return JSON.parse(piece);
+  } catch {
+    // Torn by a write cut short — a full disk — with the next line appended
+    // onto it: that next line is read from where it begins, the torn one not at all.
+    const start = piece.lastIndexOf(LINE_START);
+    if (start <= 0) return undefined;
+    try {
+      return JSON.parse(piece.slice(start));
+    } catch {
+      return undefined;
+    }
+  }
+}
+
 function linesIn(path: string): Line[] {
   let text: string;
   try {
@@ -58,24 +77,21 @@ function linesIn(path: string): Line[] {
   // The last piece has no newline: a line still being written, left for later.
   for (const piece of text.split('\n').slice(0, -1)) {
     if (piece.trim() === '') continue;
-    try {
-      const line = JSON.parse(piece) as Partial<Line> | null;
-      if (
-        line === null ||
-        typeof line !== 'object' ||
-        typeof line.id !== 'string' ||
-        typeof line.at !== 'number' ||
-        !Number.isFinite(line.at) ||
-        !isEvent(line.hook_event_name) ||
-        seen.has(line.id)
-      ) {
-        continue;
-      }
-      seen.add(line.id);
-      lines.push(line as Line);
-    } catch {
-      // Torn by a crash: nothing in it is read.
+    const line = parsed(piece) as Partial<Line> | null | undefined;
+    if (
+      line === null ||
+      line === undefined ||
+      typeof line !== 'object' ||
+      typeof line.id !== 'string' ||
+      typeof line.at !== 'number' ||
+      !Number.isFinite(line.at) ||
+      !isEvent(line.hook_event_name) ||
+      seen.has(line.id)
+    ) {
+      continue;
     }
+    seen.add(line.id);
+    lines.push(line as Line);
   }
   return lines;
 }
