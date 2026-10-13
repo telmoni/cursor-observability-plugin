@@ -110,6 +110,11 @@ export function withoutOursIn(config: HooksFile): HooksFile | undefined {
   return { ...config, hooks };
 }
 
+/** Whether any of `config`'s hooks is the plugin's. */
+export function holdsOurs(config: HooksFile): boolean {
+  return Object.values(config.hooks ?? {}).some((entries) => Array.isArray(entries) && entries.some(isOurs));
+}
+
 /** A repository's own entry, as `setup --project` writes one. */
 const PROJECT = /\s--project(?:\s|$)/;
 

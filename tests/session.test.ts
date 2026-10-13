@@ -203,15 +203,19 @@ describe('the spool', () => {
     expect(existsSync(join(settings.dir, 'c-1.jsonl.aside'))).toBe(false);
   });
 
-  it('is deleted, with the conversation’s state, once untouched for a week, and the log is kept', () => {
+  it('is deleted, with the conversation’s state, once untouched for a week, and the log and what setup keeps are not', () => {
     append(settings.dir, 'old', lineAt('a'));
     append(settings.dir, 'new', lineAt('b'));
-    writeFileSync(join(settings.dir, 'old.json'), '{"sent":[]}');
-    writeFileSync(join(settings.dir, 'hook.log'), '');
+    const kept = ['hook.log', 'hook.log.1', 'hooks.json.found-0123456789abcdef'];
+    for (const name of ['old.json', 'old.lock', 'old.jsonl.aside', 'old.json.tmp', ...kept]) {
+      writeFileSync(join(settings.dir, name), '');
+    }
     const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
-    for (const name of ['old.jsonl', 'old.json', 'hook.log']) utimesSync(join(settings.dir, name), weekAgo, weekAgo);
+    for (const name of readdirSync(settings.dir).filter((name) => name !== 'new.jsonl')) {
+      utimesSync(join(settings.dir, name), weekAgo, weekAgo);
+    }
     sweep(settings.dir, Date.now());
-    expect(readdirSync(settings.dir).sort()).toEqual(['hook.log', 'new.jsonl']);
+    expect(readdirSync(settings.dir).sort()).toEqual([...kept, 'new.jsonl'].sort());
   });
 
   it('reads a line once though a compaction cut short wrote it twice', () => {

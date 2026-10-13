@@ -29,6 +29,9 @@ const GRACE_MS = 100;
 /** A conversation untouched this long is over, and what is left of it is deleted. */
 const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** A conversation's files, named by its id: its spool, its state, its lock, and each written aside. */
+const CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside)?|json(?:\.tmp)?|lock)$/;
+
 function spoolOf(dir: string, conversationId: string): string {
   return join(dir, `${conversationId}.jsonl`);
 }
@@ -121,7 +124,8 @@ export async function compact(dir: string, conversationId: string, drop: Readonl
 
 /**
  * Deletes what conversations untouched for a week left behind: a turn whose
- * hooks never ended it, or one Telmoni never took, would otherwise stay for good.
+ * hooks never ended it, or one Telmoni never took, would otherwise stay for
+ * good. The log and what setup keeps are no conversation's.
  */
 export function sweep(dir: string, now: number): void {
   let names: string[];
@@ -131,7 +135,7 @@ export function sweep(dir: string, now: number): void {
     return;
   }
   for (const name of names) {
-    if (name.startsWith('hook.log')) continue;
+    if (!CONVERSATION_FILE.test(name)) continue;
     const path = join(dir, name);
     try {
       if (now - statSync(path).mtimeMs > EXPIRY_MS) rmSync(path, { force: true });

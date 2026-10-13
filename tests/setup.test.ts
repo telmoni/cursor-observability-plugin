@@ -24,6 +24,13 @@ const OTHERS = {
   },
 };
 
+/** A hooks.json as Cursor's documentation writes one, as a tool writes one, and one emptied by hand. */
+const FOUND = [
+  '{\n  "version": 1,\n  "hooks": {\n    "afterFileEdit": [{ "command": "./hooks/format.sh" }],\n    "stop": [{ "command": "./audit.sh", "loop_limit": 10 }]\n  }\n}\n',
+  JSON.stringify(OTHERS, null, 4),
+  '{"version":1,"hooks":{}}',
+];
+
 let home: { path: string; remove: () => void };
 let printed: string[];
 
@@ -208,12 +215,46 @@ describe('remove', () => {
   it('takes out the plugin’s hooks, its key and its folder, and leaves every other tool’s as they were', async () => {
     writeOthers();
     await setup(options());
-    mkdirSync(join(cursor(), 'telmoni'));
+    mkdirSync(join(cursor(), 'telmoni'), { recursive: true });
     writeFileSync(join(cursor(), 'telmoni', 'hook.log'), '');
     expect(remove(options())).toBe(0);
     expect(read(hooksFile())).toEqual(OTHERS);
     expect(existsSync(keyFile())).toBe(false);
     expect(existsSync(join(cursor(), 'telmoni'))).toBe(false);
+  });
+
+  it('puts back the very bytes setup found, however they were written', async () => {
+    for (const text of FOUND) {
+      mkdirSync(cursor(), { recursive: true });
+      writeFileSync(hooksFile(), text);
+      expect(await setup(options())).toBe(0);
+      expect(await setup(options({ node: '/usr/bin/node' }))).toBe(0);
+      expect(readFileSync(hooksFile(), 'utf8')).not.toBe(text);
+      expect(remove(options())).toBe(0);
+      expect(readFileSync(hooksFile(), 'utf8')).toBe(text);
+    }
+  });
+
+  it('puts back the very bytes of a repository’s hooks.json', async () => {
+    const repository = join(home.path, 'repository');
+    mkdirSync(join(repository, '.git'), { recursive: true });
+    mkdirSync(join(repository, '.cursor'));
+    const file = join(repository, '.cursor', 'hooks.json');
+    writeFileSync(file, FOUND[0]!);
+    const project = options({ project: true, cwd: repository, env: {} });
+    expect(await setup(project)).toBe(0);
+    expect(remove(project)).toBe(0);
+    expect(readFileSync(file, 'utf8')).toBe(FOUND[0]);
+  });
+
+  it('keeps what another tool changed since setup, rather than put back what setup found', async () => {
+    writeOthers();
+    await setup(options());
+    const config = read(hooksFile()) as { hooks: Record<string, unknown[]> };
+    config.hooks['afterFileEdit'] = [{ command: './hooks/lint.sh' }];
+    writeFileSync(hooksFile(), JSON.stringify(config));
+    expect(remove(options())).toBe(0);
+    expect(read(hooksFile())).toEqual({ ...OTHERS, hooks: { ...OTHERS.hooks, afterFileEdit: [{ command: './hooks/lint.sh' }] } });
   });
 
   it('deletes a hooks.json setup made, which holds nothing else', async () => {

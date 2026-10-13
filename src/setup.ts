@@ -6,6 +6,7 @@
  * turn's export is what tells whether the platform takes it, in `hook.log`.
  */
 
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -20,7 +21,15 @@ import {
 import { isIP } from 'node:net';
 import { dirname, join, sep } from 'node:path';
 
-import { type HooksFile, type Scope, commandFor, parseHooks, withOurs, withoutOursIn } from './hooks.js';
+import {
+  type HooksFile,
+  type Scope,
+  commandFor,
+  holdsOurs,
+  parseHooks,
+  withOurs,
+  withoutOursIn,
+} from './hooks.js';
 import { EVENTS } from './input.js';
 import { type KeyFile, pathsOf, readKeyFile } from './settings.js';
 
@@ -78,16 +87,14 @@ function targetOf(path: string): string {
   return existsSync(path) ? realpathSync(path) : path;
 }
 
-/** What is in `path`, a reason it cannot be added to, or nothing where it does not exist. */
-function readHooks(path: string): HooksFile | string | undefined {
-  let text: string;
+/** What is in `path`, or nothing where it does not exist. */
+function readText(path: string): string | undefined {
   try {
-    text = readFileSync(path, 'utf8');
+    return readFileSync(path, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
   }
-  return parseHooks(text);
 }
 
 /** Written aside and renamed over, so Cursor, which reloads the file as it changes, never reads half of it. */
@@ -98,16 +105,63 @@ function writeAtomically(path: string, text: string, mode: number): void {
   renameSync(temporary, path);
 }
 
-function writeHooks(path: string, config: HooksFile): void {
+/** Written through a link to the file it names, in the mode that file had. */
+function writeThrough(path: string, text: string): void {
   const target = targetOf(path);
   const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
-  writeAtomically(target, `${JSON.stringify(config, null, 2)}\n`, mode);
+  writeAtomically(target, text, mode);
+}
+
+function writeHooks(path: string, config: HooksFile): void {
+  writeThrough(path, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+/**
+ * Where setup keeps a hooks file as it found it, before it first added the
+ * plugin's hooks: remove, finding the file as setup left it, puts back its
+ * very bytes rather than the same hooks written out afresh.
+ */
+function foundOf(file: string, home: string): string {
+  return join(pathsOf(home).dir, `hooks.json.found-${createHash('sha256').update(file).digest('hex').slice(0, 16)}`);
+}
+
+function keepFound(file: string, home: string, text: string | undefined): void {
+  mkdirSync(pathsOf(home).dir, { recursive: true, mode: 0o700 });
+  writeAtomically(foundOf(file, home), JSON.stringify({ text: text ?? null }), 0o600);
+}
+
+/** The text setup found, where it kept it and the file was there. */
+function readFound(path: string): string | undefined {
+  try {
+    const { text } = JSON.parse(readFileSync(path, 'utf8')) as { text?: unknown };
+    return typeof text === 'string' ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether two values read from JSON hold the same, whatever the order of their keys. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && same(left[key], right[key]));
+}
+
+/** What remove leaves of the file setup made from `text`. */
+function leftOf(text: string): HooksFile | string | undefined {
+  const config = parseHooks(text);
+  return typeof config === 'string' ? config : withoutOursIn(withOurs(config, new Map()));
 }
 
 export async function setup(options: Options): Promise<number> {
   const { print } = options;
   const file = hooksFileOf(options);
-  const config = readHooks(file);
+  const text = readText(file);
+  const config = text === undefined ? undefined : parseHooks(text);
   if (typeof config === 'string') {
     print(`${shown(file, options.home)} ${config}; fix it or move it aside, then run setup again. Nothing was changed.`);
     return 1;
@@ -115,7 +169,10 @@ export async function setup(options: Options): Promise<number> {
   const scope: Scope = options.project ? 'project' : 'user';
   const commands = new Map(EVENTS.map((event) => [event, commandFor(scope, event, options.node, options.script)]));
   const merged = withOurs(config ?? {}, commands);
+  // Kept once, before the plugin's hooks first went in; a second run finds them there.
+  const found = config === undefined || !holdsOurs(config);
   if (options.project) {
+    if (found) keepFound(file, options.home, text);
     writeHooks(file, merged);
     print(`Cursor's hooks for this repository: ${shown(file, options.home)}. Commit it.`);
     print(
@@ -149,6 +206,7 @@ export async function setup(options: Options): Promise<number> {
   const key: KeyFile = { apiKey };
   if (endpoint !== undefined) key.endpoint = endpoint;
   writeAtomically(paths.keyFile, `${JSON.stringify(key, null, 2)}\n`, 0o600);
+  if (found) keepFound(file, options.home, text);
   writeHooks(file, merged);
   print(`Cursor's hooks: ${shown(file, options.home)}. Your key: ${shown(paths.keyFile, options.home)}.`);
   print('Each turn of a Cursor agent conversation is recorded in Telmoni from your next prompt.');
@@ -158,18 +216,24 @@ export async function setup(options: Options): Promise<number> {
 export function remove(options: Options): number {
   const { print } = options;
   const file = hooksFileOf(options);
-  const config = readHooks(file);
+  const text = readText(file);
+  const config = text === undefined ? undefined : parseHooks(text);
   if (typeof config === 'string') {
     print(`${shown(file, options.home)} ${config}; take the telmoni-cursor-observability entries out by hand. Nothing was changed.`);
     return 1;
   }
+  const kept = foundOf(file, options.home);
   if (config !== undefined) {
     const left = withoutOursIn(config);
-    // A file that held the plugin's hooks alone goes, unless it is a link,
-    // which would be left pointing at nothing.
-    if (left === undefined && !lstatSync(file).isSymbolicLink()) rmSync(file, { force: true });
+    const found = readFound(kept);
+    // As setup left it: what it found, to the byte. A file that held the
+    // plugin's hooks alone goes, unless it is a link, which would be left
+    // pointing at nothing.
+    if (found !== undefined && same(left, leftOf(found))) writeThrough(file, found);
+    else if (left === undefined && !lstatSync(file).isSymbolicLink()) rmSync(file, { force: true });
     else writeHooks(file, left ?? { version: 1, hooks: {} });
   }
+  rmSync(kept, { force: true });
   print(`Taken out of ${shown(file, options.home)}.`);
   if (!options.project) {
     const paths = pathsOf(options.home);
