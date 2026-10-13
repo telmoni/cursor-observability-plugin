@@ -75,15 +75,15 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
     else found.push(line);
   }
   const turns: Turn[] = [...own].map(([id, turnLines]) => ({ id, lines: turnLines, headless: false }));
-  // Each turn runs from its first line to its stop or, where none came, to
-  // the session's next start or end; sorted, so a line goes to the latest
-  // turn begun before it.
+  // Each turn runs from its first line to the session's next start or end;
+  // sorted, so a line goes to the latest turn begun before it, its stop past
+  // or not: a subagent's stop, which Cursor gives the conversation's id, can
+  // come after the turn's own, where the person stopped the turn over it.
   const bounds = sorted.filter(isSessionLine).map((line) => line.at);
   const spans = turns
     .map((turn) => {
       const start = turn.lines[0]!.at;
-      const end = stopOf(turn)?.at ?? bounds.find((at) => at > start) ?? Number.POSITIVE_INFINITY;
-      return { turn, start, end };
+      return { turn, start, end: bounds.find((at) => at > start) ?? Number.POSITIVE_INFINITY };
     })
     .sort((a, b) => a.start - b.start);
   const loose: Line[] = [];
@@ -95,7 +95,7 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
   };
   for (const line of rest) {
     if (!isSessionLine(line)) {
-      // A tool's event that came without its turn's id, inside a turn: that turn's.
+      // An event that came without its turn's id, inside a turn: that turn's.
       const span = spans.findLast((s) => s.start <= line.at && line.at <= s.end);
       if (span !== undefined) {
         span.turn.lines.push(line);
@@ -112,6 +112,12 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
     // no run rather than one run around them.
     if (previous !== undefined && spans.some((s) => s.start > previous.at && s.start < line.at)) closeSession();
     if (line.hook_event_name === 'sessionStart') closeSession();
+    // A subagent's stop is part of the work around it: one that opens no
+    // session's work came after its turn was sent, and is no run of its own.
+    if (session === undefined && line.hook_event_name === 'subagentStop') {
+      loose.push(line);
+      continue;
+    }
     (session ??= []).push(line);
     if (line.hook_event_name === 'sessionEnd') closeSession();
   }

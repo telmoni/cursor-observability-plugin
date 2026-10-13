@@ -118,8 +118,8 @@ describe('a copy', () => {
     const [first, second] = stops(steps);
     through(steps, 0, first!);
     await hook('stop', IDE);
-    // A background subagent of the first turn, stopping during the second.
-    const late = { ...steps[6]!, after_ms: 101_000 };
+    // A call of the first turn, ending during the second.
+    const late = { ...steps.find((step) => step.payload['tool_name'] === 'Task')!, after_ms: 101_000 };
     through(steps, first!, second! - 1);
     replay([late], settings.dir, BASE, ids);
     through(steps, second! - 1, second!);
@@ -129,6 +129,26 @@ describe('a copy', () => {
       runIdOf(IDE, 'a1b2c3d4-0002-4a00-8000-000000000002'),
     ]);
     expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('never makes a run of a subagent’s stop that came after its turn was sent', async () => {
+    const steps = fixture('ide');
+    const [first, second] = stops(steps);
+    through(steps, 0, first!);
+    await hook('stop', IDE);
+    // The person stopped the turn over a subagent, whose own stop came later.
+    const subagentStop = steps.find((step) => step.payload.hook_event_name === 'subagentStop')!;
+    replay([{ ...subagentStop, after_ms: 70_500 }], settings.dir, BASE, ids);
+    through(steps, first!, second!);
+    await hook('stop', IDE);
+    through(steps, second!, steps.length);
+    await hook('sessionEnd', IDE);
+    expect(sent.map((run) => run.runId)).toEqual([
+      runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001'),
+      runIdOf(IDE, 'a1b2c3d4-0002-4a00-8000-000000000002'),
+      runIdOf(IDE, 'a1b2c3d4-0003-4a00-8000-000000000003'),
+    ]);
+    expect(existsSync(join(settings.dir, `${IDE}.jsonl`))).toBe(false);
   });
 
   it('closes a headless session’s turn at its end, with no stop', async () => {

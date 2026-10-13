@@ -54,6 +54,35 @@ describe('a spool cut into turns', () => {
     expect(turns.filter(hasWork).map((turn) => turn.id)).toEqual(['g-1']);
   });
 
+  it('gives a turn a subagent’s stop, which Cursor gives the conversation’s id, though it came after the turn’s own stop', () => {
+    const lines = [
+      line('sessionStart', 0, undefined),
+      line('beforeSubmitPrompt', 1000, 'g-1'),
+      line('postToolUse', 3000, 'g-1', { tool_name: 'Task', duration: 1500 }),
+      line('stop', 4000, 'g-1', { status: 'aborted' }),
+      line('subagentStop', 4002, CONVERSATION, { subagent_type: 'explore', status: 'aborted' }),
+      line('beforeSubmitPrompt', 9000, 'g-2'),
+      line('subagentStop', 9500, CONVERSATION, { subagent_type: 'shell' }),
+      line('stop', 12000, 'g-2'),
+    ];
+    const { turns, loose } = cut(lines, CONVERSATION);
+    expect(turns.map((turn) => [turn.id, turn.lines.map((l) => l.hook_event_name)])).toEqual([
+      ['g-1', ['beforeSubmitPrompt', 'postToolUse', 'stop', 'subagentStop']],
+      ['g-2', ['beforeSubmitPrompt', 'subagentStop', 'stop']],
+    ]);
+    expect(loose.map((l) => l.hook_event_name)).toEqual(['sessionStart']);
+  });
+
+  it('makes no run of a subagent’s stop whose turn has left the spool, sent before it came', () => {
+    const lines = [
+      line('subagentStop', 4002, CONVERSATION, { subagent_type: 'explore', status: 'aborted' }),
+      line('beforeSubmitPrompt', 9000, 'g-2'),
+    ];
+    const { turns, loose } = cut(lines, CONVERSATION);
+    expect(turns.map((turn) => [turn.id, turn.lines.length])).toEqual([['g-2', 1]]);
+    expect(loose.map((l) => l.hook_event_name)).toEqual(['subagentStop']);
+  });
+
   it('makes each headless session a turn of its own, though every one carries the conversation’s id', () => {
     const lines = [
       line('sessionStart', 0, CONVERSATION),
@@ -69,6 +98,22 @@ describe('a spool cut into turns', () => {
     ]);
     // One that answered without a tool is still a run.
     expect(turns.every(hasWork)).toBe(true);
+  });
+
+  it('ends a headless session at its end: what comes after is no part of it', () => {
+    const lines = [
+      line('sessionStart', 0, CONVERSATION),
+      line('postToolUse', 2000, CONVERSATION, { tool_name: 'Read' }),
+      line('sessionEnd', 4000, CONVERSATION, { reason: 'completed' }),
+      line('subagentStop', 4500, CONVERSATION, { subagent_type: 'explore' }),
+      line('postToolUse', 6000, CONVERSATION, { tool_name: 'Grep' }),
+    ];
+    const { turns, loose } = cut(lines, CONVERSATION);
+    expect(turns.map((turn) => [turn.id, turn.lines.map((l) => l.hook_event_name)])).toEqual([
+      [`${CONVERSATION}@${BASE}`, ['sessionStart', 'postToolUse', 'sessionEnd']],
+      [`${CONVERSATION}@${BASE + 6000}`, ['postToolUse']],
+    ]);
+    expect(loose.map((l) => l.hook_event_name)).toEqual(['subagentStop']);
   });
 });
 
