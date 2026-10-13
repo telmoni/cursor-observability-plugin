@@ -104,6 +104,14 @@ describe('the hook', () => {
     await copiesDone();
   }, 15_000);
 
+  it('reads an event as PowerShell pipes it on Windows: a byte order mark before it, a line’s end after', async () => {
+    const env = { TELMONI_API_KEY: 'telmoni_test' };
+    const payload = `\uFEFF${JSON.stringify(fixture('ide')[2]!.payload)}\r\n`;
+    expect(await run(['hook', 'postToolUse'], payload, { env })).toMatchObject({ code: 0, stdout: '{}' });
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8')).toContain('"tool_name":"Read"');
+    expect(existsSync(join(telmoni(), 'hook.log'))).toBe(false);
+  });
+
   it('answers input it cannot read, and an event it does not record, exits 0, and logs the kind alone', async () => {
     const garbled = await run(['hook', 'beforeSubmitPrompt'], 'SENTINEL not json');
     expect(garbled).toMatchObject({ code: 0, stdout: '{"continue":true}' });

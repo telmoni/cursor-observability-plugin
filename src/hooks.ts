@@ -27,22 +27,34 @@ export function isOurs(entry: unknown): boolean {
   return typeof command === 'string' && OURS.test(command);
 }
 
-/** A path as a shell reads it whole: cmd.exe takes double quotes, and a POSIX shell expands nothing in single ones. */
-function quote(path: string): string {
-  return process.platform === 'win32' ? `"${path}"` : `'${path.replaceAll("'", "'\\''")}'`;
+/**
+ * A path as the shell Cursor runs a hook's command in reads it whole: in
+ * single quotes, inside which a POSIX shell expands nothing, and PowerShell,
+ * which Cursor runs the command in on Windows, nothing but a quote doubled —
+ * any of its four typographic single quotes among them.
+ */
+function quote(path: string, platform: NodeJS.Platform): string {
+  return platform === 'win32' ? `'${path.replace(/['\u2018-\u201b]/g, '$&$&')}'` : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
 /**
  * The user's own hooks run the node that ran setup and the installed bundle,
  * both by absolute path, since Cursor opened from the Dock or a launcher has
- * no shell's `PATH`. A repository's run the bin through `PATH`, since they run
- * on teammates' machines and in cloud agents' VMs, wherever each installed it;
- * `--project` tells the hook which it is.
+ * no shell's `PATH`; PowerShell reads a quoted path opening a command as a
+ * string, not a program, unless `&` calls it. A repository's run the bin
+ * through `PATH`, since they run on teammates' machines and in cloud agents'
+ * VMs, wherever each installed it; `--project` tells the hook which it is.
  */
-export function commandFor(scope: Scope, event: CursorEvent, node: string, script: string): string {
-  return scope === 'project'
-    ? `telmoni-cursor-observability hook ${event} --project`
-    : `${quote(node)} ${quote(script)} hook ${event}`;
+export function commandFor(
+  scope: Scope,
+  event: CursorEvent,
+  node: string,
+  script: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (scope === 'project') return `telmoni-cursor-observability hook ${event} --project`;
+  const call = `${quote(node, platform)} ${quote(script, platform)} hook ${event}`;
+  return platform === 'win32' ? `& ${call}` : call;
 }
 
 /** The file as Cursor reads it, or why the plugin cannot add to it without breaking it. */

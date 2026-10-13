@@ -162,7 +162,9 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
     dir = settings.dir;
     // When Cursor started the hook, which is when the event happened, give or take a millisecond.
     const at = Math.round(performance.timeOrigin);
-    const got = received(event, JSON.parse(await readInput()) as unknown, at, lineId());
+    // On Windows Cursor pipes the event through PowerShell, which opens it with a byte order mark.
+    const got = received(event, JSON.parse((await readInput()).replace(/^\uFEFF/, '')) as unknown, at, lineId());
+
     if (got === undefined) {
       log(settings.dir, `${event}: hook input not understood; nothing kept`);
       return;

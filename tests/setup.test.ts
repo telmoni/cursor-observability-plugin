@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { commandFor, isOurs } from '../src/hooks';
 import { EVENTS } from '../src/input';
 import { type Options, remove, setup } from '../src/setup';
 import { tempDir } from './helpers';
@@ -153,6 +154,34 @@ describe('setup', () => {
     await setup(options());
     remove(options());
     expect(read(hooksFile())).toEqual({ version: 1, hooks: {} });
+  });
+});
+
+describe('the command a hook runs', () => {
+  it('quotes each path whole for a POSIX shell', () => {
+    expect(commandFor('user', 'stop', "/home/o'brien/node", '/opt/x/telmoni-cursor-observability.mjs', 'linux')).toBe(
+      `'/home/o'\\''brien/node' '/opt/x/telmoni-cursor-observability.mjs' hook stop`,
+    );
+  });
+
+  it('calls the node with & for PowerShell, which Cursor runs a hook’s command in on Windows', () => {
+    const command = commandFor(
+      'user',
+      'stop',
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Users\\o’brien\\AppData\\Roaming\\npm\\node_modules\\telmoni-cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs',
+      'win32',
+    );
+    expect(command).toBe(
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o’’brien\\AppData\\Roaming\\npm\\node_modules\\telmoni-cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs' hook stop",
+    );
+    expect(isOurs({ command })).toBe(true);
+  });
+
+  it('runs the bin through PATH in a repository’s hooks, on every platform', () => {
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      expect(commandFor('project', 'stop', NODE, SCRIPT, platform)).toBe('telmoni-cursor-observability hook stop --project');
+    }
   });
 });
 
