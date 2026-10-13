@@ -185,6 +185,14 @@ describe('the hook', () => {
     expect((await run(['hook', 'postToolUse', '--project'], payload, { env })).stdout).toBe('{}');
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
   });
+  it('records a workspace that is the home folder, whose hooks file is the person’s own', async () => {
+    mkdirSync(join(home.path, '.cursor'), { recursive: true });
+    const command = `'${process.execPath}' '${CLI}' hook postToolUse`;
+    writeFileSync(join(home.path, '.cursor', 'hooks.json'), JSON.stringify({ version: 1, hooks: { postToolUse: [{ command }] } }));
+    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: home.path };
+    expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
 });
 
 describe('setup, run as the bin', () => {

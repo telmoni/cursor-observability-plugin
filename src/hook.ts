@@ -13,7 +13,7 @@
 import { readFileSync, readSync, writeSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
-import { registers } from './hooks.js';
+import { registersProject } from './hooks.js';
 import { CLOSING, type CursorEvent, answerFor, isEvent, isId, received } from './input.js';
 import { kindOf, log } from './log.js';
 import type { HookInput } from './session.js';
@@ -100,7 +100,7 @@ function projectRuns(env: NodeJS.ProcessEnv, event: CursorEvent): boolean {
   const root = env['CURSOR_PROJECT_DIR']?.trim();
   if (!root || !isAbsolute(root)) return false;
   try {
-    return registers(JSON.parse(readFileSync(join(root, '.cursor', 'hooks.json'), 'utf8')), event);
+    return registersProject(JSON.parse(readFileSync(join(root, '.cursor', 'hooks.json'), 'utf8')), event);
   } catch {
     return false;
   }
@@ -164,7 +164,6 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
     const at = Math.round(performance.timeOrigin);
     // On Windows Cursor pipes the event through PowerShell, which opens it with a byte order mark.
     const got = received(event, JSON.parse((await readInput()).replace(/^\uFEFF/, '')) as unknown, at, lineId());
-
     if (got === undefined) {
       log(settings.dir, `${event}: hook input not understood; nothing kept`);
       return;

@@ -110,11 +110,18 @@ export function withoutOursIn(config: HooksFile): HooksFile | undefined {
   return { ...config, hooks };
 }
 
-/** Whether `config` runs the plugin at `event`. */
-export function registers(config: unknown, event: CursorEvent): boolean {
+/** A repository's own entry, as `setup --project` writes one. */
+const PROJECT = /\s--project(?:\s|$)/;
+
+/**
+ * Whether `config` runs the plugin at `event` as a repository's hooks do. A
+ * workspace that is the home folder has the person's own hooks file for its
+ * `.cursor/hooks.json`, whose entries are no repository's.
+ */
+export function registersProject(config: unknown, event: CursorEvent): boolean {
   if (config === null || typeof config !== 'object') return false;
   const hooks = (config as HooksFile).hooks;
   if (hooks === null || typeof hooks !== 'object') return false;
   const entries = (hooks as Record<string, unknown>)[event];
-  return Array.isArray(entries) && entries.some(isOurs);
+  return Array.isArray(entries) && entries.some((entry) => isOurs(entry) && PROJECT.test((entry as { command: string }).command));
 }
