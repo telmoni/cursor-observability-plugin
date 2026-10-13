@@ -1,0 +1,48 @@
+{
+  "name": "telmoni-cursor-observability-plugin",
+  "version": "0.1.0",
+  "description": "Telmoni for Cursor: each turn of an agent conversation recorded as a run, metadata only",
+  "license": "Apache-2.0",
+  "author": "Kendrick Lawton",
+  "homepage": "https://github.com/telmoni/cursor-observability-plugin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/telmoni/cursor-observability-plugin.git"
+  },
+  "keywords": [
+    "telmoni",
+    "cursor",
+    "hooks",
+    "observability",
+    "agents"
+  ],
+  "type": "module",
+  "bin": {
+    "telmoni-cursor-observability": "dist/telmoni-cursor-observability.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "allowScripts": {
+    "esbuild": false
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "telmoni": "file:../telmoni/sdk/typescript",
+    "tsup": "^8.0.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}
