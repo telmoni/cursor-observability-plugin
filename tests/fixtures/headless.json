@@ -1,0 +1,73 @@
+[
+  {
+    "after_ms": 0,
+    "payload": {
+      "conversation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "generation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "model": "composer-2.5",
+      "is_background_agent": false,
+      "session_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "hook_event_name": "sessionStart",
+      "cursor_version": "2026.08.11-e8db854",
+      "workspace_roots": ["/home/person/SENTINEL-project"],
+      "user_email": "person@example.com",
+      "transcript_path": null
+    }
+  },
+  {
+    "after_ms": 12800,
+    "payload": {
+      "conversation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "generation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "model": "composer-2.5",
+      "tool_name": "Grep",
+      "tool_input": { "pattern": "SENTINEL pattern", "glob": "**/*.rs", "output_mode": "files_with_matches" },
+      "tool_output": "{\"pattern\":\"SENTINEL pattern\",\"success\":true}",
+      "duration": 3120.25,
+      "tool_use_id": "tool_0101",
+      "session_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "hook_event_name": "postToolUse",
+      "cursor_version": "2026.08.11-e8db854",
+      "workspace_roots": ["/home/person/SENTINEL-project"],
+      "user_email": "person@example.com",
+      "transcript_path": "/home/person/.cursor/projects/SENTINEL/agent-transcripts/5e6f7a8b.jsonl"
+    }
+  },
+  {
+    "after_ms": 15600,
+    "payload": {
+      "conversation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "generation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "model": "composer-2.5",
+      "tool_name": "Read",
+      "tool_input": { "file_path": "/home/person/SENTINEL-project/src/main.rs" },
+      "tool_output": "{\"file_path\":\"/home/person/SENTINEL-project/src/main.rs\",\"content_length\":25988}",
+      "duration": 3.104,
+      "tool_use_id": "tool_0102",
+      "session_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "hook_event_name": "postToolUse",
+      "cursor_version": "2026.08.11-e8db854",
+      "workspace_roots": ["/home/person/SENTINEL-project"],
+      "user_email": "person@example.com",
+      "transcript_path": "/home/person/.cursor/projects/SENTINEL/agent-transcripts/5e6f7a8b.jsonl"
+    }
+  },
+  {
+    "after_ms": 28400,
+    "payload": {
+      "conversation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "generation_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "model": "composer-2.5",
+      "reason": "completed",
+      "duration_ms": 41250,
+      "is_background_agent": false,
+      "final_status": "completed",
+      "session_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "hook_event_name": "sessionEnd",
+      "cursor_version": "2026.08.11-e8db854",
+      "workspace_roots": ["/home/person/SENTINEL-project"],
+      "user_email": "person@example.com",
+      "transcript_path": "/home/person/.cursor/projects/SENTINEL/agent-transcripts/5e6f7a8b.jsonl"
+    }
+  }
+]

@@ -1,0 +1,142 @@
+/**
+ * A conversation's spool, `<conversation_id>.jsonl` in the plugin's folder: a
+ * line per event of the turns not yet sent, appended by each hook as Cursor
+ * runs it, read by the detached copy once a turn has ended, and compacted
+ * once the copy has sent it.
+ *
+ * Hooks append without a lock, so Cursor never waits on one; the copy, which
+ * holds the conversation's lock, compacts by moving the spool aside and
+ * appending back what it keeps, so a hook appending meanwhile loses nothing.
+ */
+
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
+import { type Line, isEvent } from './input.js';
+
+/** How long a hook that opened the spool before it was moved aside may take to finish its line. */
+const GRACE_MS = 100;
+
+/** A conversation untouched this long is over, and what is left of it is deleted. */
+const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+function spoolOf(dir: string, conversationId: string): string {
+  return join(dir, `${conversationId}.jsonl`);
+}
+
+function asideOf(dir: string, conversationId: string): string {
+  return `${spoolOf(dir, conversationId)}.aside`;
+}
+
+/** One line, in one write, which another hook's line cannot split. */
+export function append(dir: string, conversationId: string, line: Line): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  appendFileSync(spoolOf(dir, conversationId), `${JSON.stringify(line)}\n`, { mode: 0o600 });
+}
+
+function linesIn(path: string): Line[] {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return [];
+  }
+  const lines: Line[] = [];
+  const seen = new Set<string>();
+  // The last piece has no newline: a line still being written, left for later.
+  for (const piece of text.split('\n').slice(0, -1)) {
+    if (piece.trim() === '') continue;
+    try {
+      const line = JSON.parse(piece) as Partial<Line> | null;
+      if (
+        line === null ||
+        typeof line !== 'object' ||
+        typeof line.id !== 'string' ||
+        typeof line.at !== 'number' ||
+        !Number.isFinite(line.at) ||
+        !isEvent(line.hook_event_name) ||
+        seen.has(line.id)
+      ) {
+        continue;
+      }
+      seen.add(line.id);
+      lines.push(line as Line);
+    } catch {
+      // Torn by a crash: nothing in it is read.
+    }
+  }
+  return lines;
+}
+
+/** The spool's lines, each once. */
+export function readSpool(dir: string, conversationId: string): Line[] {
+  return linesIn(spoolOf(dir, conversationId));
+}
+
+/**
+ * Puts back what a copy that died while compacting had moved aside. A line it
+ * had already put back is read twice and counted once.
+ */
+export function recover(dir: string, conversationId: string): void {
+  const aside = asideOf(dir, conversationId);
+  if (!existsSync(aside)) return;
+  const lines = linesIn(aside);
+  if (lines.length > 0) {
+    appendFileSync(spoolOf(dir, conversationId), lines.map((line) => `${JSON.stringify(line)}\n`).join(''), {
+      mode: 0o600,
+    });
+  }
+  rmSync(aside, { force: true });
+}
+
+/** Takes the lines in `drop` out of the spool; the caller holds the conversation's lock. */
+export async function compact(dir: string, conversationId: string, drop: ReadonlySet<string>): Promise<void> {
+  if (drop.size === 0) return;
+  const spool = spoolOf(dir, conversationId);
+  const aside = asideOf(dir, conversationId);
+  try {
+    renameSync(spool, aside);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  // A hook that opened the spool just before it moved writes its line into
+  // the file now aside: it is read below with the rest.
+  await new Promise((resolve) => setTimeout(resolve, GRACE_MS));
+  const kept = linesIn(aside).filter((line) => !drop.has(line.id));
+  if (kept.length > 0) {
+    appendFileSync(spool, kept.map((line) => `${JSON.stringify(line)}\n`).join(''), { mode: 0o600 });
+  }
+  rmSync(aside, { force: true });
+}
+
+/**
+ * Deletes what conversations untouched for a week left behind: a turn whose
+ * hooks never ended it, or one Telmoni never took, would otherwise stay for good.
+ */
+export function sweep(dir: string, now: number): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (name.startsWith('hook.log')) continue;
+    const path = join(dir, name);
+    try {
+      if (now - statSync(path).mtimeMs > EXPIRY_MS) rmSync(path, { force: true });
+    } catch {
+      // Gone already.
+    }
+  }
+}
