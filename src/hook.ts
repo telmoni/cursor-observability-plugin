@@ -115,7 +115,14 @@ function handedOffFrom(raw: unknown): HookInput | undefined {
   return { event, conversationId };
 }
 
-async function copy(handedOff: string, settings: Settings): Promise<void> {
+async function copy(handedOff: string, env: NodeJS.ProcessEnv): Promise<void> {
+  let settings: Settings;
+  try {
+    settings = settingsFrom(env);
+  } catch {
+    // No home folder to keep anything in, nor to say so.
+    return;
+  }
   try {
     const input = handedOffFrom(JSON.parse(handedOff));
     if (input === undefined) return;
@@ -131,13 +138,12 @@ async function copy(handedOff: string, settings: Settings): Promise<void> {
   }
 }
 
-/** `script` is the bundle itself, which the copy runs. */
+/** `script` is the bundle itself, which the copy runs. Never throws: whatever happens is in hook.log. */
 export async function hook(args: readonly string[], script: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const event = args[0];
-  const settings = settingsFrom(env);
   const handedOff = env[HANDOFF];
   if (handedOff !== undefined) {
-    await copy(handedOff, settings);
+    await copy(handedOff, env);
     return;
   }
   try {
@@ -149,7 +155,11 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
   }
   // Registered for an event this version does not record: answered, nothing kept.
   if (!isEvent(event)) return;
+  let dir: string | undefined;
   try {
+    // Read once Cursor has its answer: a home folder that cannot be found is then no hook that failed.
+    const settings = settingsFrom(env);
+    dir = settings.dir;
     // When Cursor started the hook, which is when the event happened, give or take a millisecond.
     const at = Math.round(performance.timeOrigin);
     const got = received(event, JSON.parse(await readInput()) as unknown, at, lineId());
@@ -172,6 +182,6 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
     child.on('error', (error) => log(settings.dir, `${event}: could not start the sender: ${kindOf(error)}`));
     child.unref();
   } catch (error) {
-    log(settings.dir, `${event}: failed: ${kindOf(error)}`);
+    if (dir !== undefined) log(dir, `${event}: failed: ${kindOf(error)}`);
   }
 }
