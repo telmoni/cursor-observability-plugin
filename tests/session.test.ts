@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { RunRecord } from 'telmoni';
@@ -16,6 +16,7 @@ let dir: { path: string; remove: () => void };
 let settings: Settings;
 let sent: RunRecord[];
 let answers: boolean[];
+let attempts: number;
 let logged: string[];
 let ids: { next: number };
 
@@ -27,6 +28,7 @@ beforeEach(() => {
   settings = { apiKey: 'telmoni_test', endpoint: undefined, dir: join(dir.path, 'telmoni') };
   sent = [];
   answers = [];
+  attempts = 0;
   logged = [];
   ids = { next: 0 };
 });
@@ -44,6 +46,7 @@ function hook(event: HookInput['event'], conversationId: string, overrides: Part
   return sync({ event, conversationId }, { ...settings, ...overrides }, {
     sender: () => ({
       send: (record) => {
+        attempts++;
         const ok = answers.shift() ?? true;
         if (ok) sent.push(record);
         return Promise.resolve(ok);
@@ -95,6 +98,38 @@ describe('a copy', () => {
     await hook('stop', IDE);
     expect(sent).toHaveLength(1);
     expect(readSpool(settings.dir, IDE).map((line) => line.hook_event_name)).toEqual(['beforeSubmitPrompt', 'postToolUse']);
+  });
+
+  it('sends a turn again, the same, where the copy died between sending it and saving that it had', async () => {
+    const steps = fixture('ide');
+    const [first] = stops(steps);
+    through(steps, 0, first!);
+    // The state cannot be written: the copy fails once the turn is sent.
+    const state = join(settings.dir, `${IDE}.json.tmp`);
+    mkdirSync(state, { recursive: true });
+    await expect(hook('stop', IDE)).rejects.toThrow();
+    rmSync(state, { recursive: true });
+    expect(readSpool(settings.dir, IDE)).toHaveLength(first!);
+    await hook('stop', IDE);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+    expect(existsSync(join(settings.dir, `${IDE}.lock`))).toBe(false);
+  });
+
+  it('sends nothing after a turn the platform did not take, rather than every turn to a Telmoni that is down', async () => {
+    const steps = fixture('ide');
+    const [, second] = stops(steps);
+    through(steps, 0, second!);
+    answers = [false];
+    await hook('stop', IDE);
+    expect(attempts).toBe(1);
+    expect(sent).toEqual([]);
+    await hook('stop', IDE);
+    expect(sent.map((run) => run.runId)).toEqual([
+      runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001'),
+      runIdOf(IDE, 'a1b2c3d4-0002-4a00-8000-000000000002'),
+    ]);
   });
 
   it('stops at a turn the platform did not take, and sends it again at the next hook', async () => {
