@@ -243,6 +243,31 @@ describe('the lock', () => {
     expect(existsSync(join(lockDir, 'c-1.lock'))).toBe(false);
   });
 
+  it('is kept fresh while its copy works, so a long send is never taken for a copy that died', async () => {
+    const lockDir = join(dir.path, 'locks');
+    const order: string[] = [];
+    const staleMs = 300;
+    const first = withLock(lockDir, 'c-1', 1000, async () => {
+      order.push('first in');
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      order.push('first out');
+    }, staleMs);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const second = withLock(lockDir, 'c-1', 3000, async () => void order.push('second'), staleMs);
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(order).toEqual(['first in', 'first out', 'second']);
+  });
+
+  it('is taken from a copy that died holding it, once it is stale', async () => {
+    const lockDir = join(dir.path, 'locks');
+    mkdirSync(lockDir, { recursive: true });
+    writeFileSync(join(lockDir, 'c-1.lock'), '');
+    const minuteAgo = new Date(Date.now() - 60_000);
+    utimesSync(join(lockDir, 'c-1.lock'), minuteAgo, minuteAgo);
+    expect(await withLock(lockDir, 'c-1', 1000, async () => undefined, 30_000)).toBe(true);
+  });
+
   it('gives up past its wait while another holds it', async () => {
     const lockDir = join(dir.path, 'locks');
     mkdirSync(lockDir, { recursive: true });

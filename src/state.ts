@@ -4,7 +4,17 @@
  * hook from sending the same turns at once.
  */
 
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -45,7 +55,7 @@ export function writeState(dir: string, conversationId: string, state: Conversat
   renameSync(`${path}.tmp`, path);
 }
 
-/** A lock older than this was left by a copy that died holding it. */
+/** A lock untouched this long was left by a copy that died holding it. */
 const STALE_MS = 120_000;
 
 /**
@@ -57,6 +67,7 @@ export async function withLock(
   conversationId: string,
   waitMs: number,
   work: () => Promise<void>,
+  staleMs = STALE_MS,
 ): Promise<boolean> {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, `${conversationId}.lock`);
@@ -68,7 +79,7 @@ export async function withLock(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       try {
-        if (Date.now() - statSync(path).mtimeMs > STALE_MS) rmSync(path, { force: true });
+        if (Date.now() - statSync(path).mtimeMs > staleMs) rmSync(path, { force: true });
       } catch {
         // Freed between the two calls.
       }
@@ -76,9 +87,22 @@ export async function withLock(
       await sleep(200);
     }
   }
+  // Touched while held: a copy sending a long turn, or to a slow Telmoni, is
+  // never taken for one that died, and another never compacts the spool
+  // under it.
+  const fresh = setInterval(() => {
+    try {
+      const now = new Date();
+      utimesSync(path, now, now);
+    } catch {
+      // Gone: nothing left to keep fresh.
+    }
+  }, staleMs / 4);
+  fresh.unref();
   try {
     await work();
   } finally {
+    clearInterval(fresh);
     rmSync(path, { force: true });
   }
   return true;
