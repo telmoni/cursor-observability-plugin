@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -64,10 +65,28 @@ export interface Received {
   body: string;
 }
 
-/** Ingest as the SDK meets it: an OTLP/JSON lane that keeps what it is sent, or answers `status`. */
+/** As ingest caps a span's name: a tool call's name, or any other span's own (`crates/telemetry/src/contract.rs`). */
+const NAME_MAX = 128;
+
+function nameOf(span: JsonSpan): string {
+  const attributes = attributesOf(span);
+  return attributes['gen_ai.operation.name'] === 'execute_tool' ? String(attributes['gen_ai.tool.name']) : span.name;
+}
+
+/**
+ * Ingest as the SDK meets it: an OTLP/JSON lane that answers `status`, and
+ * at `200` stores what it is sent, as ingest does, but a span whose name is
+ * past its cap, which it refuses in a partial success; a body sent again is
+ * answered as the first was and stored once, as ingest's claim on a body
+ * answers a copy within the hour.
+ */
 export class FakeIngest {
+  /** Every request, as sent. */
   readonly received: Received[] = [];
+  /** Every span stored. */
+  readonly stored: JsonSpan[] = [];
   status = 200;
+  readonly #answered = new Map<string, string>();
   #server: Server | undefined;
 
   async start(): Promise<string> {
@@ -75,14 +94,29 @@ export class FakeIngest {
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
-        this.received.push({ url: request.url ?? '', headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
-        if (this.status === 200) {
-          response.writeHead(200, { 'Content-Type': 'application/json', 'Telmoni-Content-Mode': 'off' });
-          response.end(JSON.stringify({ partialSuccess: null }));
-        } else {
+        const body = Buffer.concat(chunks).toString('utf8');
+        this.received.push({ url: request.url ?? '', headers: request.headers, body });
+        if (this.status !== 200) {
           response.writeHead(this.status, { 'Content-Type': 'application/json' });
           response.end(JSON.stringify({ code: 7, message: '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
+          return;
         }
+        const digest = createHash('sha256').update(body).digest('hex');
+        let answer = this.#answered.get(digest);
+        if (answer === undefined) {
+          const refused: string[] = [];
+          for (const span of spansIn(body)) {
+            if (span.name === 'telmoni.run.start') continue;
+            if (nameOf(span).length > NAME_MAX) refused.push(`span ${span.spanId} refused: name over its cap`);
+            else this.stored.push(span);
+          }
+          answer = JSON.stringify({
+            partialSuccess: refused.length === 0 ? null : { rejectedSpans: refused.length, errorMessage: refused.join('\n') },
+          });
+          this.#answered.set(digest, answer);
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json', 'Telmoni-Content-Mode': 'off' });
+        response.end(answer);
       });
     });
     await new Promise<void>((resolve) => this.#server!.listen(0, '127.0.0.1', resolve));
@@ -93,14 +127,15 @@ export class FakeIngest {
     return new Promise((resolve) => (this.#server ? this.#server.close(() => resolve()) : resolve()));
   }
 
+  /** Every span sent, in the order sent. */
   spans(): JsonSpan[] {
-    return this.received.flatMap((request) => {
-      const body = JSON.parse(request.body) as {
-        resourceSpans: Array<{ scopeSpans: Array<{ spans: JsonSpan[] }> }>;
-      };
-      return body.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans));
-    });
+    return this.received.flatMap((request) => spansIn(request.body));
   }
+}
+
+function spansIn(body: string): JsonSpan[] {
+  const parsed = JSON.parse(body) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: JsonSpan[] }> }> };
+  return parsed.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans));
 }
 
 export function attributesOf(span: JsonSpan): Record<string, unknown> {
