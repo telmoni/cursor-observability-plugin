@@ -23,6 +23,16 @@ const NAMESPACE = '4a535453-1668-44c0-9fb8-637aa6591fae';
 /** How far apart a subagent's stop and the end of the `Task` call that ran it may be. */
 const SLACK_MS = 2_000;
 
+/**
+ * Ingest refuses a span whose name runs past this: a tool call's name is the
+ * tool's, and a model call's is `chat <model>`. A name is cut to fit rather
+ * than lose the call.
+ */
+const NAME_MAX = 128;
+const MODEL_MAX = NAME_MAX - 'chat '.length;
+
+const fit = (name: string, max: number): string => (name.length > max ? name.slice(0, max) : name);
+
 /** A version 5 UUID (RFC 9562): the same turn always gets the same run id. */
 export function uuid5(namespace: string, name: string): string {
   const hash = createHash('sha1').update(Buffer.from(namespace.replaceAll('-', ''), 'hex')).update(name, 'utf8').digest();
@@ -103,7 +113,7 @@ function usageOf(turn: Turn): ModelCallRecord['usage'] {
 function toolCallOf(line: Line): ToolCallRecord {
   const tool: ToolCallRecord = {
     type: 'tool_call',
-    name: line.tool_name ?? 'unknown',
+    name: fit(line.tool_name ?? 'unknown', NAME_MAX),
     start: line.at - (line.duration ?? 0),
     end: line.at,
   };
@@ -180,7 +190,7 @@ export function recordOf(turn: Turn, context: Context): RunRecord | undefined {
   // A prompt alone, which nothing answered, is no model call.
   const answered = turn.headless || work.some((line) => line.hook_event_name !== 'beforeSubmitPrompt');
   if (model !== undefined && answered) {
-    const call: ModelCallRecord = { type: 'model_call', model, provider: PROVIDER, start, end };
+    const call: ModelCallRecord = { type: 'model_call', model: fit(model, MODEL_MAX), provider: PROVIDER, start, end };
     const usage = usageOf(turn);
     if (usage !== undefined) call.usage = usage;
     inside.push(call);

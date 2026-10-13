@@ -199,6 +199,17 @@ describe('a turn that never said how it ended', () => {
     expect(run.inside).toEqual([]);
     expect(run.cancelled).toBe(true);
   });
+  it('cuts a name past what ingest takes for a span’s name, rather than lose the call', () => {
+    const tool = `MCP:${'a'.repeat(156)}`;
+    const model = `custom-${'m'.repeat(121)}`;
+    const run = recordOf(
+      turn([line('beforeSubmitPrompt', 0, { model }), line('postToolUse', 900, { model, tool_name: tool, duration: 100 })]),
+      { conversationId: 'c-1', sessionEnd: undefined },
+    )!;
+    // A tool call's span is named by its tool, a model call's `chat <model>`: 128 characters at most.
+    expect(tools(run).map((call) => call.name)).toEqual([tool.slice(0, 128)]);
+    expect(models(run).map((call) => `chat ${call.model}`)).toEqual([`chat ${model.slice(0, 123)}`]);
+  });
 });
 
 describe('a run id', () => {
