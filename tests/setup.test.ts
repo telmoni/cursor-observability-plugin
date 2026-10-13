@@ -80,7 +80,7 @@ describe('setup', () => {
     expect(config.hooks['afterFileEdit']).toEqual(OTHERS.hooks.afterFileEdit);
     expect(config.hooks['preToolUse']).toEqual(OTHERS.hooks.preToolUse);
     // Observe-only: none of the hooks whose answer can block the person.
-    for (const permission of ['preToolUse', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'subagentStart']) {
+    for (const permission of ['preToolUse', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead', 'subagentStart']) {
       expect(JSON.stringify(config.hooks[permission] ?? [])).not.toContain('telmoni-cursor-observability');
     }
     const once = readFileSync(hooksFile(), 'utf8');
