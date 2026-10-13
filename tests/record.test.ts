@@ -1,3 +1,4 @@
+import { Telmoni } from 'telmoni';
 import type { ModelCallRecord, RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -199,6 +200,7 @@ describe('a turn that never said how it ended', () => {
     expect(run.inside).toEqual([]);
     expect(run.cancelled).toBe(true);
   });
+
   it('cuts a name past what ingest takes for a span’s name, rather than lose the call', () => {
     const tool = `MCP:${'a'.repeat(156)}`;
     const model = `custom-${'m'.repeat(121)}`;
@@ -212,6 +214,66 @@ describe('a turn that never said how it ended', () => {
   });
 });
 
+describe('every record', () => {
+  it('is one the SDK takes, each span within its run, however the clock ran', async () => {
+    // Seeded, so a failure is the same failure every time.
+    let seed = 20261012;
+    const random = (): number => (seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31;
+    const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
+    const events = ['sessionStart', 'beforeSubmitPrompt', 'postToolUse', 'postToolUseFailure', 'subagentStop', 'afterAgentResponse', 'stop', 'sessionEnd'] as const;
+    const telmoni = new Telmoni(
+      { apiKey: 'telmoni_test', endpoint: 'http://127.0.0.1:9' },
+      {
+        transport: () => Promise.resolve({ status: 200, headers: { get: () => null }, text: () => Promise.resolve('{}') }),
+        warn: () => undefined,
+      },
+    );
+    let records = 0;
+    try {
+      for (let n = 0; n < 400; n++) {
+        const lines: Line[] = Array.from({ length: 1 + Math.floor(random() * 24) }, (_, index) => {
+          const line: Line = {
+            id: `l-${n}-${index}`,
+            // A clock that runs back and jumps: hooks' times in any order.
+            at: BASE + Math.floor(random() * 120_000) - 60_000,
+            hook_event_name: pick(events),
+            model: 'composer-2.5',
+          };
+          const generation = pick(['g-1', 'g-2', 'g-3', 'c-1', undefined]);
+          if (generation !== undefined) line.generation_id = generation;
+          if (random() < 0.5) line.tool_name = pick(['Task', 'Shell', 'Read']);
+          if (random() < 0.5) line.duration = random() * 90_000;
+          if (random() < 0.5) line.duration_ms = Math.floor(random() * 90_000);
+          if (random() < 0.3) line.status = pick(['completed', 'aborted', 'error']);
+          if (random() < 0.3) line.input_tokens = Math.floor(random() * 1000);
+          if (random() < 0.3) line.cache_read_tokens = Math.floor(random() * 2000);
+          return line;
+        });
+        const { turns, loose } = cut(lines, 'c-1');
+        // Each line once: in a turn, or in none.
+        expect([...turns.flatMap((turn) => turn.lines), ...loose].map((line) => line.id).sort()).toEqual(lines.map((line) => line.id).sort());
+        for (const turn of turns) {
+          const context: Context = { conversationId: 'c-1', sessionEnd: undefined };
+          const record = recordOf(turn, context);
+          if (record === undefined) continue;
+          records++;
+          expect(() => telmoni.recordRun(record)).not.toThrow();
+          expect(record.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+          expect(recordOf(turn, context)).toEqual(record);
+          for (const item of record.inside ?? []) {
+            expect(Number(item.end)).toBeGreaterThanOrEqual(Number(item.start));
+            expect(Number(item.start)).toBeGreaterThanOrEqual(Number(record.start));
+            expect(Number(item.end)).toBeLessThanOrEqual(Number(record.end));
+          }
+        }
+      }
+    } finally {
+      await telmoni.shutdown();
+    }
+    expect(records).toBeGreaterThan(300);
+  });
+});
+
 describe('a run id', () => {
   it('is a version 5 UUID as RFC 9562 derives one', () => {
     // RFC 9562's own example: the DNS namespace and "www.example.com".
@@ -222,5 +284,11 @@ describe('a run id', () => {
     expect(runIdOf('c-1', 'g-1')).toBe(runIdOf('c-1', 'g-1'));
     expect(runIdOf('c-1', 'g-1')).not.toBe(runIdOf('c-1', 'g-2'));
     expect(runIdOf('c-1', 'g-1')).not.toBe(uuid5('843bf4bd-49bf-4cf9-8305-6eeaa16cafb3', 'c-1/g-1'));
+  });
+
+  it('never changes: a turn sent again by a later version of the plugin is the same run', () => {
+    // As Python's uuid.uuid5 derives them, under the plugin's namespace.
+    expect(runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001')).toBe('71cf03b7-fd74-5440-956e-e990274eed22');
+    expect(runIdOf(HEADLESS, `${HEADLESS}@${at(0)}`)).toBe('c2e3a6f0-f15d-5a9d-badc-63ea0a65d2b5');
   });
 });
