@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { RunRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Line } from '../src/input';
+import { log } from '../src/log';
 import { runIdOf } from '../src/record';
 import { type HookInput, sync } from '../src/session';
 import type { Settings } from '../src/settings';
@@ -186,6 +187,50 @@ describe('a copy', () => {
     expect(existsSync(join(settings.dir, `${IDE}.jsonl`))).toBe(false);
   });
 
+  it('catches up a spool of many turns at once, each sent once and in order', async () => {
+    // As Telmoni down for a day leaves it: hundreds of turns not yet sent.
+    const turns = 400;
+    for (let n = 0; n < turns; n++) {
+      const generation_id = `g-${String(n).padStart(4, '0')}`;
+      const at = BASE + n * 10_000;
+      append(settings.dir, IDE, { id: `p-${n}`, at, hook_event_name: 'beforeSubmitPrompt', generation_id });
+      for (let call = 0; call < 10; call++) {
+        const line: Line = { id: `t-${n}-${call}`, at: at + 100 + call, hook_event_name: 'postToolUse', generation_id };
+        append(settings.dir, IDE, { ...line, tool_name: 'Read', duration: 50 });
+      }
+      append(settings.dir, IDE, { id: `s-${n}`, at: at + 5000, hook_event_name: 'stop', generation_id, status: 'completed' });
+    }
+    await hook('stop', IDE);
+    expect(sent.map((run) => run.runId)).toEqual(
+      Array.from({ length: turns }, (_, n) => runIdOf(IDE, `g-${String(n).padStart(4, '0')}`)),
+    );
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+    expect(readState(settings.dir, IDE).sent).toHaveLength(64);
+  }, 60_000);
+
+  it('sends what is left of a turn whose first lines went with the spool, emptied between its hooks', async () => {
+    const steps = fixture('ide');
+    const [first] = stops(steps);
+    through(steps, 0, first! - 1);
+    rmSync(join(settings.dir, `${IDE}.jsonl`));
+    through(steps, first! - 1, first!);
+    await hook('stop', IDE);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.runId).toBe(runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001'));
+    expect(Number(sent[0]!.end)).toBeGreaterThanOrEqual(Number(sent[0]!.start));
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('sends though the state was cut short, as a full disk leaves it', async () => {
+    const steps = fixture('ide');
+    const [first] = stops(steps);
+    through(steps, 0, first!);
+    writeFileSync(join(settings.dir, `${IDE}.json`), '{"sent":["a1b2c3d4-00');
+    await hook('stop', IDE);
+    expect(sent.map((run) => run.runId)).toEqual([runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001')]);
+    expect(readState(settings.dir, IDE).sent).toEqual(['a1b2c3d4-0001-4a00-8000-000000000001']);
+  });
+
   it('closes a headless session’s turn at its end, with no stop', async () => {
     replay(fixture('headless'), settings.dir, BASE, ids);
     await hook('sessionEnd', HEADLESS);
@@ -259,6 +304,28 @@ describe('the spool', () => {
     writeFileSync(join(settings.dir, 'c-1.jsonl'), text);
     expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['a']);
     expect(readFileSync(join(settings.dir, 'c-1.jsonl'), 'utf8')).toBe(text);
+  });
+});
+
+describe('a spool cut short', () => {
+  const lineAt = (id: string): Line => ({ id, at: BASE, hook_event_name: 'postToolUse', generation_id: 'g-1' });
+
+  it('reads the line a hook appended onto one a full disk cut short', () => {
+    mkdirSync(settings.dir, { recursive: true });
+    const torn = `${JSON.stringify(lineAt('a')).slice(0, 30)}`;
+    writeFileSync(join(settings.dir, 'c-1.jsonl'), `${JSON.stringify(lineAt('a'))}\n${torn}${JSON.stringify(lineAt('b'))}\n`);
+    expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('the log', () => {
+  it('moves aside past a megabyte and begins again, every line the person’s alone', () => {
+    const line = 'x'.repeat(1024);
+    for (let n = 0; n < 1100; n++) log(settings.dir, line);
+    const path = join(settings.dir, 'hook.log');
+    expect(readFileSync(`${path}.1`, 'utf8').length).toBeGreaterThan(1024 * 1024);
+    expect(readFileSync(path, 'utf8').length).toBeLessThan(1024 * 1024);
+    for (const file of [path, `${path}.1`]) expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });
 
