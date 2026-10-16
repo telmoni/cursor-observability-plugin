@@ -33,7 +33,7 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 ## Code Rules
 - TypeScript on Node 22, bundled by tsup into `dist/`, the SDK inside it, split so the hook's entry loads none of the SDK: Cursor waits on every hook, and evaluating the SDK costs one about 70 ms. Import nothing into `cli.ts` or `hook.ts` that the hook does not need, and only what Node's startup already holds; anything else is imported where it is used. Nothing built is committed.
 - Everything that leaves goes through the SDK's `recordRun`, never a request of the plugin's own: the contract, the content rules and the retries are the SDK's.
-- Comments say *why*, never *what*. No AI signatures anywhere.
+- Comments are for a person reading the code, and short: they say *why*, never *what* — a doc comment in a line or two, an inline comment in one, a test's doc in one line on what it proves. The reasoning behind a change (a race worked through, the designs turned down, its history) goes in `ARCHITECTURE.md` or the commit message, never above a function, and editing a comment means shortening its whole block. No AI signatures anywhere.
 - Never log a key, a token or anything read from a conversation; log kinds.
 
 ## Agent Hygiene
