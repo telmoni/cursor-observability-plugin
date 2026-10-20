@@ -226,6 +226,8 @@ describe('every record', () => {
       {
         transport: () => Promise.resolve({ status: 200, headers: { get: () => null }, text: () => Promise.resolve('{}') }),
         warn: () => undefined,
+        // The sender's unbounded queue: the records here go in with no flush between.
+        processor: { maxQueueSize: Number.POSITIVE_INFINITY },
       },
     );
     let records = 0;
