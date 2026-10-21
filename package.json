@@ -1,5 +1,5 @@
 {
-  "name": "telmoni-cursor-observability-plugin",
+  "name": "@telmoni/cursor-observability-plugin",
   "version": "0.1.0",
   "description": "Telmoni for Cursor: each turn of an agent conversation recorded as a run, metadata only",
   "license": "Apache-2.0",
@@ -26,6 +26,9 @@
   "engines": {
     "node": ">=22"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "allowScripts": {
     "esbuild": false
   },
@@ -37,7 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
-    "telmoni": "file:../telmoni/sdk/typescript",
+    "telmoni": "^0.1.0",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.0"

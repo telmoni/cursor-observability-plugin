@@ -176,7 +176,7 @@ export async function setup(options: Options): Promise<number> {
     writeHooks(file, merged);
     print(`Cursor's hooks for this repository: ${shown(file, options.home)}. Commit it.`);
     print(
-      "Cloud agents run it once their environment has the package — npm install -g telmoni-cursor-observability-plugin in .cursor/environment.json's install step — and the key, as the Cloud Agents secret TELMONI_API_KEY.",
+      "Cloud agents run it once their environment has the package — npm install -g @telmoni/cursor-observability-plugin in .cursor/environment.json's install step — and the key, as the Cloud Agents secret TELMONI_API_KEY.",
     );
     print('On your own machine, telmoni-cursor-observability setup gives these hooks your key.');
     return 0;

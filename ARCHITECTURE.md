@@ -94,9 +94,9 @@ Cursor runs Claude Code's hooks too, an installed plugin's among them, handing t
 
 ## What ships
 
-The npm package `telmoni-cursor-observability-plugin` holds `dist/` — tsup's bundle of the plugin, the SDK and OpenTelemetry, split so the hook's entry (`dist/telmoni-cursor-observability.mjs`, the bin `telmoni-cursor-observability`) loads none of the SDK — beside `package.json`, `README.md` and `LICENSE`, which npm always adds; it needs Node 22 or later, and nothing installed beside it. A person installs it with `npm install -g`, never by cloning the repository into `~/.cursor/plugins/local/`, which would bring its source and tests. A listing in Cursor's marketplace, which installs from a Git repository, waits until one can install no more than the package.
+The npm package `@telmoni/cursor-observability-plugin` holds `dist/` — tsup's bundle of the plugin, the SDK and OpenTelemetry, split so the hook's entry (`dist/telmoni-cursor-observability.mjs`, the bin `telmoni-cursor-observability`) loads none of the SDK — beside `package.json`, `README.md` and `LICENSE`, which npm always adds; it needs Node 22 or later, and nothing installed beside it. A person installs it with `npm install -g`, never by cloning the repository into `~/.cursor/plugins/local/`, which would bring its source and tests. A listing in Cursor's marketplace, which installs from a Git repository, waits until one can install no more than the package.
 
-Until the SDKs are published, the SDK is a development dependency by path (`file:../telmoni/sdk/typescript`), bundled at build; publishing this package waits on theirs, and the dependency becomes the registry's `telmoni` in the same change.
+The SDK is a development dependency, the registry's `telmoni`, bundled at build.
 
 ## Testing
 

@@ -4,12 +4,10 @@ Records each turn of your [Cursor](https://cursor.com) agent conversations in [T
 
 ## Install
 
-The plugin is not on npm yet, so the install below waits for its package; until then, run it [from a checkout](#from-a-checkout).
-
 You need Cursor, and Node.js 22 or later with npm. Make a project API key holding the **ingest** scope on your project's API keys page, then:
 
 ```sh
-npm install -g telmoni-cursor-observability-plugin
+npm install -g @telmoni/cursor-observability-plugin
 telmoni-cursor-observability setup
 ```
 
@@ -21,12 +19,10 @@ The hooks run the Node that ran `setup`, by its path, so a Cursor opened from th
 
 ### From a checkout
 
-Build the plugin beside a checkout of [`telmoni/telmoni`](https://github.com/telmoni/telmoni), whose TypeScript SDK it is built on, and run its `setup` from the build:
+Build the plugin and run its `setup` from the build:
 
 ```sh
-git clone https://github.com/telmoni/telmoni.git
 git clone https://github.com/telmoni/cursor-observability-plugin.git
-(cd telmoni/sdk/typescript && npm install && npm run build)
 (cd cursor-observability-plugin && npm install && npm run build)
 node cursor-observability-plugin/dist/telmoni-cursor-observability.mjs setup
 ```
@@ -35,13 +31,13 @@ node cursor-observability-plugin/dist/telmoni-cursor-observability.mjs setup
 
 ## Cloud agents
 
-Cursor's cloud agents never see your home folder: they read the repository's hooks, which run the package's command, so they wait for it to be on npm. Once it is, in the repository:
+Cursor's cloud agents never see your home folder: they read the repository's hooks, which run the package's command. In the repository:
 
 ```sh
 telmoni-cursor-observability setup --project
 ```
 
-Commit the `.cursor/hooks.json` it writes. Then give the agents the package, `npm install -g telmoni-cursor-observability-plugin` in the install step of `.cursor/environment.json`, and the key, as the Cloud Agents secret `TELMONI_API_KEY`.
+Commit the `.cursor/hooks.json` it writes. Then give the agents the package, `npm install -g @telmoni/cursor-observability-plugin` in the install step of `.cursor/environment.json`, and the key, as the Cloud Agents secret `TELMONI_API_KEY`.
 
 The repository's hooks run on your teammates' machines too. Where the package is installed, they keep and send nothing until a teammate runs `telmoni-cursor-observability setup`; where it is not, Cursor's Hooks output shows them failing to start, and Cursor goes on as before. On a machine where both are set up, the repository's hooks record its conversations and your own stand aside, so nothing is recorded twice.
 
@@ -65,7 +61,7 @@ The hooks never block Cursor, and slow it no more than Node takes to start: each
 
 ```sh
 telmoni-cursor-observability remove
-npm uninstall -g telmoni-cursor-observability-plugin
+npm uninstall -g @telmoni/cursor-observability-plugin
 ```
 
 `remove` takes the plugin's hooks out of `~/.cursor/hooks.json`, leaving every other tool's — the file as setup found it, to the byte, where nothing else in it changed since — and deletes your key and `~/.cursor/telmoni/`, the plugin's record of what it sent. In a repository, `telmoni-cursor-observability remove --project` takes them out of `.cursor/hooks.json`. From a checkout, `node dist/telmoni-cursor-observability.mjs remove`, run in it, does the same as `remove`.

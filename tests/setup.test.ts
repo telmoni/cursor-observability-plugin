@@ -11,7 +11,7 @@ import { tempDir } from './helpers';
 /** A key of the shape the platform mints, and no key of anyone's. */
 const KEY = `telmoni_${'Ab3dE6gH9j'.repeat(4)}K-_`;
 const NODE = '/opt/node 22/bin/node';
-const SCRIPT = '/opt/node 22/lib/node_modules/telmoni-cursor-observability-plugin/dist/telmoni-cursor-observability.mjs';
+const SCRIPT = '/opt/node 22/lib/node_modules/@telmoni/cursor-observability-plugin/dist/telmoni-cursor-observability.mjs';
 
 /** Another tool's hooks, among them two at events the plugin records too. */
 const OTHERS = {
@@ -91,11 +91,11 @@ describe('setup', () => {
   it('replaces its own hooks where the node or the bundle moved', async () => {
     writeOthers();
     await setup(options());
-    await setup(options({ node: '/usr/bin/node', script: '/usr/lib/node_modules/telmoni-cursor-observability-plugin/dist/telmoni-cursor-observability.mjs' }));
+    await setup(options({ node: '/usr/bin/node', script: '/usr/lib/node_modules/@telmoni/cursor-observability-plugin/dist/telmoni-cursor-observability.mjs' }));
     const config = read(hooksFile()) as { hooks: Record<string, Array<{ command: string }>> };
     expect(config.hooks['stop']!.map((entry) => entry.command)).toEqual([
       './hooks/audit.sh',
-      `'/usr/bin/node' '/usr/lib/node_modules/telmoni-cursor-observability-plugin/dist/telmoni-cursor-observability.mjs' hook stop`,
+      `'/usr/bin/node' '/usr/lib/node_modules/@telmoni/cursor-observability-plugin/dist/telmoni-cursor-observability.mjs' hook stop`,
     ]);
   });
 
@@ -176,11 +176,11 @@ describe('the command a hook runs', () => {
       'user',
       'stop',
       'C:\\Program Files\\nodejs\\node.exe',
-      'C:\\Users\\o’brien\\AppData\\Roaming\\npm\\node_modules\\telmoni-cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs',
+      'C:\\Users\\o’brien\\AppData\\Roaming\\npm\\node_modules\\@telmoni\\cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs',
       'win32',
     );
     expect(command).toBe(
-      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o’’brien\\AppData\\Roaming\\npm\\node_modules\\telmoni-cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs' hook stop",
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o’’brien\\AppData\\Roaming\\npm\\node_modules\\@telmoni\\cursor-observability-plugin\\dist\\telmoni-cursor-observability.mjs' hook stop",
     );
     expect(isOurs({ command })).toBe(true);
   });

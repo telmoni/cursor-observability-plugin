@@ -1,6 +1,6 @@
 # Telmoni for Cursor — Agent Guidelines
 
-The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://github.com/telmoni/cursor-observability-plugin)): hooks that record each turn of a person's Cursor agent conversations as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `telmoni-cursor-observability-plugin` alone, installed with `npm install -g` and wired into Cursor by its `telmoni-cursor-observability setup`. The repository is public, and every file in it is published as written.
+The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://github.com/telmoni/cursor-observability-plugin)): hooks that record each turn of a person's Cursor agent conversations as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `@telmoni/cursor-observability-plugin` alone, installed with `npm install -g` and wired into Cursor by its `telmoni-cursor-observability setup`. The repository is public, and every file in it is published as written.
 
 ## Ground Rules
 - **Pre-launch:** nothing has shipped. Change the record, the spool, the state and the hooks to their ideal state; no migration paths.
@@ -23,11 +23,11 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 | `src/setup.ts`, `src/hooks.ts` | `setup` and `remove`; Cursor's `hooks.json` and the plugin's entries in it. |
 | `tests/` | The suites; `tests/fixtures/` holds synthetic conversations written from Cursor's documented payloads. |
 | `ARCHITECTURE.md` | How the plugin works, and why. |
-| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), linked by path until the SDKs are published. |
+| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`. |
 | [`telmoni/docs`](https://github.com/telmoni/docs) | Sibling repo, checked out as `../docs`: the book, whose `api/coding-agents.mdx` documents this plugin. |
 
 ## Commands
-- **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`). The suites need `../telmoni/sdk/typescript` built (`npm run build` there) and run the built binary, under a home folder of their own.
+- **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`). The suites run the built binary, under a home folder of their own.
 - **Locally:** `node dist/telmoni-cursor-observability.mjs setup` wires the build in this checkout into `~/.cursor/hooks.json`, `remove` takes it out again; `HOME=$(mktemp -d) node dist/telmoni-cursor-observability.mjs setup` shows what it writes without touching Cursor.
 
 ## Code Rules
