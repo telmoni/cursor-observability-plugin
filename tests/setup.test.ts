@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { commandFor, isOurs } from '../src/hooks';
 import { EVENTS } from '../src/input';
-import { type Options, remove, setup } from '../src/setup';
+import { type Options, nodeOf, remove, setup } from '../src/setup';
 import { tempDir } from './helpers';
 
 /** A key of the shape the platform mints, and no key of anyone's. */
@@ -140,6 +140,21 @@ describe('setup', () => {
     expect(read(keyFile())).toEqual({ apiKey: KEY, endpoint: 'http://[::1]:8080' });
   });
 
+  it('takes exactly the endpoints the SDK sends to, and shows its reason for one it refuses', async () => {
+    expect(await setup(options({ env: { TELMONI_API_KEY: KEY, TELMONI_ENDPOINT: 'telmoni.example.com' } }))).toBe(0);
+    expect(read(keyFile())).toEqual({ apiKey: KEY, endpoint: 'telmoni.example.com' });
+    for (const endpoint of ['http://127.1:8080', 'https://telmoni.example.com/a/../b', 'http://10.0.0.5:8080']) {
+      expect(await setup(options({ env: { TELMONI_API_KEY: KEY, TELMONI_ENDPOINT: endpoint } }))).toBe(1);
+    }
+    expect(printed.slice(-3)).toEqual([
+      'TELMONI_ENDPOINT is not one the SDK sends to: the endpoint must be an http:// or https:// URL. Nothing was changed.',
+      'TELMONI_ENDPOINT is not one the SDK sends to: the endpoint must be an http:// or https:// URL. Nothing was changed.',
+      "TELMONI_ENDPOINT is not one the SDK sends to: refusing to send the API key over unencrypted HTTP to '10.0.0.5'; use HTTPS. Nothing was changed.",
+    ]);
+    expect(read(keyFile())).toEqual({ apiKey: KEY, endpoint: 'telmoni.example.com' });
+    expect(printed.join('\n')).not.toContain(KEY);
+  });
+
   it('writes through a link to the file it names, so a hooks.json among dotfiles stays there', async () => {
     const dotfiles = join(home.path, 'dotfiles');
     mkdirSync(dotfiles);
@@ -161,6 +176,21 @@ describe('setup', () => {
     await setup(options());
     remove(options());
     expect(read(hooksFile())).toEqual({ version: 1, hooks: {} });
+  });
+});
+
+describe('the node the user’s hooks run', () => {
+  it('is the link on PATH to this node, which outlives an upgrade, else this node by its own path', () => {
+    const name = process.platform === 'win32' ? 'node.exe' : 'node';
+    const linked = join(home.path, 'linked');
+    const other = join(home.path, 'other');
+    mkdirSync(linked);
+    mkdirSync(other);
+    symlinkSync(process.execPath, join(linked, name));
+    writeFileSync(join(other, name), '');
+    expect(nodeOf({ PATH: ['relative', other, linked].join(delimiter) })).toBe(join(linked, name));
+    expect(nodeOf({ PATH: other })).toBe(process.execPath);
+    expect(nodeOf({})).toBe(process.execPath);
   });
 });
 

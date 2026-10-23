@@ -69,8 +69,10 @@ function linesIn(path: string): Line[] {
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
-  } catch {
-    return [];
+  } catch (error) {
+    // Only a missing file holds no lines: one that cannot be read is never taken for empty, nor deleted.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
   const lines: Line[] = [];
   const seen = new Set<string>();

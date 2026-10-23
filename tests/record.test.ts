@@ -214,6 +214,40 @@ describe('a turn that never said how it ended', () => {
   });
 });
 
+describe('a subagent', () => {
+  const line = (event: Line['hook_event_name'], ms: number, extra: Partial<Line> = {}): Line => ({
+    id: `l-${event}-${ms}`,
+    at: at(ms),
+    hook_event_name: event,
+    generation_id: 'g-1',
+    model: 'composer-2.5',
+    ...extra,
+  });
+
+  it('is a step in place of the Task call it ran in, but beside a background one’s, which returned as it started', () => {
+    const run = recordOf(
+      {
+        id: 'g-1',
+        headless: false,
+        lines: [
+          line('beforeSubmitPrompt', 0),
+          line('postToolUse', 1000, { tool_name: 'Task', duration: 50 }),
+          line('postToolUse', 32_000, { tool_name: 'Task', duration: 30_000 }),
+          line('subagentStop', 31_990, { subagent_type: 'explore', status: 'completed', duration_ms: 29_900 }),
+          line('subagentStop', 40_000, { subagent_type: 'shell', status: 'completed', duration_ms: 38_900 }),
+          line('stop', 41_000, { status: 'completed' }),
+        ],
+      },
+      { conversationId: 'c-1', sessionEnd: undefined },
+    )!;
+    expect(tools(run).map((call) => [call.name, call.start, call.end])).toEqual([['Task', at(950), at(1000)]]);
+    expect(steps(run)).toEqual([
+      { type: 'step', name: 'subagent shell', start: at(1100), end: at(40_000) },
+      { type: 'step', name: 'subagent explore', start: at(2000), end: at(32_000) },
+    ]);
+  });
+});
+
 describe('every record', () => {
   it('is one the SDK takes, each span within its run, however the clock ran', async () => {
     // Seeded, so a failure is the same failure every time.

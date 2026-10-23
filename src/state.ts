@@ -4,17 +4,8 @@
  * hook from sending the same turns at once.
  */
 
-import {
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -27,6 +18,8 @@ export interface ConversationState {
   sent: string[];
   /** Whether a missing key has been logged for this conversation, so it is logged once. */
   warnedNoKey?: boolean;
+  /** Whether an endpoint the SDK refuses has been logged for this conversation, so it is logged once. */
+  warnedEndpoint?: boolean;
 }
 
 /** Only a turn just sent can have a line still to come. */
@@ -39,6 +32,7 @@ export function readState(dir: string, conversationId: string): ConversationStat
       sent: Array.isArray(parsed.sent) ? parsed.sent.filter((id): id is string => typeof id === 'string') : [],
     };
     if (parsed.warnedNoKey === true) state.warnedNoKey = true;
+    if (parsed.warnedEndpoint === true) state.warnedEndpoint = true;
     return state;
   } catch {
     return { sent: [] };
@@ -71,10 +65,12 @@ export async function withLock(
 ): Promise<boolean> {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, `${conversationId}.lock`);
+  // Written into the lock, so a copy lets go of its own and never of one another took from it as stale.
+  const token = `${process.pid}:${randomUUID()}`;
   const deadline = Date.now() + waitMs;
   for (;;) {
     try {
-      closeSync(openSync(path, 'wx', 0o600));
+      writeFileSync(path, token, { flag: 'wx', mode: 0o600 });
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -103,7 +99,11 @@ export async function withLock(
     await work();
   } finally {
     clearInterval(fresh);
-    rmSync(path, { force: true });
+    try {
+      if (readFileSync(path, 'utf8') === token) rmSync(path, { force: true });
+    } catch {
+      // Gone already.
+    }
   }
   return true;
 }

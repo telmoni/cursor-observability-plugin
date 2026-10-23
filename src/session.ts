@@ -22,26 +22,58 @@ export interface HookInput {
 export interface Deps {
   sender: (destination: Destination) => { send(record: RunRecord): Promise<boolean>; close(): Promise<void> };
   log: (line: string) => void;
+  /** How long a `stop`'s copy waits for the lock; the tests shorten it. */
+  lockWaitMs?: number;
 }
 
-/** How long a copy waits for another of the same conversation to finish. */
+/** How long a `stop`'s copy waits for another copy of its conversation: the next stop, or the session's end, sends what it leaves. */
 const LOCK_WAIT_MS = 60_000;
+
+/**
+ * Whether the platform took `record`, sent through a client of its own, since the SDK warns once a client of each
+ * kind; not where the SDK refuses the endpoint, whose reason `refused` is handed.
+ */
+async function sendAlone(deps: Deps, destination: Destination, record: RunRecord, refused: (reason: string) => void): Promise<boolean> {
+  let sender: ReturnType<Deps['sender']>;
+  try {
+    sender = deps.sender(destination);
+  } catch (error) {
+    // The SDK's refusal names the endpoint's host at most: never its path, its userinfo or the key.
+    if (!(error instanceof TypeError)) throw error;
+    refused(error.message);
+    return false;
+  }
+  try {
+    return await sender.send(record);
+  } finally {
+    await sender.close();
+  }
+}
 
 export async function sync(input: HookInput, settings: Settings, deps: Deps): Promise<void> {
   const { apiKey } = settings;
-  const locked = await withLock(settings.dir, input.conversationId, LOCK_WAIT_MS, async () => {
+  // No hook need follow the session's end: its copy outwaits a live holder, whose time only its sends bound.
+  const waitMs = input.event === 'sessionEnd' ? Number.POSITIVE_INFINITY : (deps.lockWaitMs ?? LOCK_WAIT_MS);
+  const locked = await withLock(settings.dir, input.conversationId, waitMs, async () => {
+    const state = readState(settings.dir, input.conversationId);
+    const once = (flag: 'warnedNoKey' | 'warnedEndpoint', line: string): void => {
+      if (state[flag] === true) return;
+      deps.log(line);
+      state[flag] = true;
+      writeState(settings.dir, input.conversationId, state);
+    };
     if (apiKey === undefined) {
-      const state = readState(settings.dir, input.conversationId);
-      if (!state.warnedNoKey) {
-        deps.log('no key: run telmoni-cursor-observability setup, or set TELMONI_API_KEY; nothing is sent until then');
-        writeState(settings.dir, input.conversationId, { ...state, warnedNoKey: true });
-      }
+      once('warnedNoKey', 'no key: run telmoni-cursor-observability setup, or set TELMONI_API_KEY; nothing is sent until then');
       return;
     }
+    const refused = (reason: string): void =>
+      once(
+        'warnedEndpoint',
+        `endpoint refused by the SDK (${reason}): run telmoni-cursor-observability setup, or set TELMONI_ENDPOINT; nothing is sent until then`,
+      );
     recover(settings.dir, input.conversationId);
     const lines = readSpool(settings.dir, input.conversationId);
     if (lines.length === 0) return;
-    const state = readState(settings.dir, input.conversationId);
     const sent = new Set(state.sent);
     const { turns, loose } = cut(lines, input.conversationId);
     const sessionEnds = lines.filter((line) => line.hook_event_name === 'sessionEnd').sort(byTime);
@@ -57,24 +89,18 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
         due.push(turn);
       }
     }
-    if (due.length > 0) {
-      const sender = deps.sender({ endpoint: settings.endpoint, apiKey });
-      try {
-        for (const turn of due) {
-          // The first session's end after the turn's last line, which cut it short.
-          const last = turn.lines.at(-1)!.at;
-          const sessionEnd = sessionEnds.find((line) => line.at >= last);
-          const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
-          if (record !== undefined && !(await sender.send(record))) break;
-          state.sent.push(turn.id);
-          writeState(settings.dir, input.conversationId, state);
-          for (const line of turn.lines) spent.add(line.id);
-        }
-      } finally {
-        await sender.close();
-      }
+    const destination: Destination = { endpoint: settings.endpoint, apiKey };
+    for (const turn of due) {
+      // The first session's end after the turn's last line, which cut it short.
+      const last = turn.lines.at(-1)!.at;
+      const sessionEnd = sessionEnds.find((line) => line.at >= last);
+      const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
+      if (record !== undefined && !(await sendAlone(deps, destination, record, refused))) break;
+      state.sent.push(turn.id);
+      writeState(settings.dir, input.conversationId, state);
+      for (const line of turn.lines) spent.add(line.id);
     }
     await compact(settings.dir, input.conversationId, spent);
   });
-  if (!locked) deps.log('busy: another copy of this conversation held the lock past its wait; the next hook sends');
+  if (!locked) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");
 }

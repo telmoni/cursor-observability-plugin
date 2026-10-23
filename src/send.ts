@@ -7,11 +7,18 @@
 import { Telmoni } from 'telmoni';
 import type { RunRecord } from 'telmoni';
 
-/** How long one turn's export may take, its retries included. */
-const FLUSH_SECONDS = 45;
-/** And how much longer for each further batch a long turn fills: the SDK sends 512 spans a request. */
+/** The SDK's batch: a record's spans go 512 to an export, one export at a time. */
 const BATCH_SPANS = 512;
-const BATCH_SECONDS = 10;
+/** The SDK's attempts at one export before it drops the batch. */
+const ATTEMPTS = 3;
+/** How long the SDK lets one attempt run. */
+const ATTEMPT_SECONDS = 10;
+/** The longest `Retry-After` the SDK waits out between two attempts. */
+const RETRY_AFTER_MAX_SECONDS = 60;
+/** One export at its worst, 150 s: every attempt run out, and the longest wait between each two. */
+const EXPORT_WORST_SECONDS = ATTEMPTS * ATTEMPT_SECONDS + (ATTEMPTS - 1) * RETRY_AFTER_MAX_SECONDS;
+/** Past its exports' worst case, so a turn the platform took late is never counted as not sent. */
+const FLUSH_MARGIN_SECONDS = 30;
 
 /**
  * The SDK's warnings of an answer ingest gave with the turn stored, less a
@@ -32,6 +39,11 @@ function spansOf(record: RunRecord): number {
   return spans;
 }
 
+/** How long a turn's flush waits: the SDK's worst case for each of its exports, and a margin. */
+export function flushSecondsOf(record: RunRecord): number {
+  return FLUSH_MARGIN_SECONDS + EXPORT_WORST_SECONDS * Math.ceil(spansOf(record) / BATCH_SPANS);
+}
+
 export class Sender {
   readonly #telmoni: Telmoni;
   readonly #warnings: string[] = [];
@@ -43,9 +55,7 @@ export class Sender {
       { endpoint: destination.endpoint, apiKey: destination.apiKey },
       {
         warn: (message) => void this.#warnings.push(message),
-        // A turn at a time, each flushed before the next, so the queue takes a
-        // turn whole: past the SDK's own bound, 2,048 spans, a long cloud
-        // agent's turn would lose calls, and be refused at every hook.
+        // Unbounded: past the SDK's own 2,048 spans, recordRun throws QueueFullError and the turn is skipped whole.
         processor: { maxQueueSize: Number.POSITIVE_INFINITY },
       },
     );
@@ -67,8 +77,7 @@ export class Sender {
       this.#log(`turn refused by the SDK: ${error instanceof Error ? error.name : typeof error}`);
       return true;
     }
-    const batches = Math.ceil(spansOf(record) / BATCH_SPANS);
-    const flushed = await this.#telmoni.flush(FLUSH_SECONDS + BATCH_SECONDS * (batches - 1));
+    const flushed = await this.#telmoni.flush(flushSecondsOf(record));
     const lost = this.#warnings.filter((warning) => !STORED.test(warning));
     if (flushed && lost.length === 0) {
       if (this.#warnings.length > 0) this.#log(`sent, though ingest kept less than all of it: ${this.#warnings.join('; ')}`);

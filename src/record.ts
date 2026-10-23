@@ -20,7 +20,7 @@ export const PROVIDER = 'cursor';
 /** The plugin's own namespace for run ids, so no other tool's ids can meet them. */
 const NAMESPACE = '4a535453-1668-44c0-9fb8-637aa6591fae';
 
-/** How far apart a subagent's stop and the end of the `Task` call that ran it may be. */
+/** How far outside a `Task` call's span a subagent's stop may fall and still be that call's work. */
 const SLACK_MS = 2_000;
 
 /**

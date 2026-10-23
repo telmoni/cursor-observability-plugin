@@ -5,7 +5,9 @@
  */
 
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { type AddressInfo, type Socket, connect, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,9 +40,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // No copy outlives its test, to write into a home folder already removed.
+  await copiesDone();
   await ingest.stop();
   home.remove();
-});
+}, 40_000);
 
 interface Ran {
   code: number | null;
@@ -92,10 +96,30 @@ async function until(check: () => boolean, ms: number): Promise<boolean> {
   return check();
 }
 
-/** Long enough for a detached copy, which waits a second for the turn's last hooks, to finish. */
-const copiesDone = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2_500));
-
 const telmoni = (): string => join(home.path, '.cursor', 'telmoni');
+
+/** The command lines of this test's detached copies still running, which /proc alone shows. */
+function copies(): string[][] {
+  if (!existsSync('/proc')) return [];
+  return readdirSync('/proc')
+    .filter((pid) => /^\d+$/.test(pid))
+    .flatMap((pid) => {
+      try {
+        const env = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
+        if (!env.includes(`HOME=${home.path}`) || !env.some((entry) => entry.startsWith('TELMONI_CURSOR_HOOK_INPUT='))) return [];
+        return [readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/** Until every copy of this test has exited and none holds a lock. */
+async function copiesDone(): Promise<void> {
+  const locked = (): boolean => existsSync(telmoni()) && readdirSync(telmoni()).some((name) => name.endsWith('.lock'));
+  expect(await until(() => copies().length === 0 && !locked(), 30_000)).toBe(true);
+}
+
 const listing = (): string => (existsSync(telmoni()) ? readdirSync(telmoni()).sort().join(' ') : '');
 const runs = (): number => ingest.spans().filter((span) => span.name === 'invoke_agent cursor').length;
 const stored = (): string[] =>
@@ -117,7 +141,6 @@ describe('the hook', () => {
       expect(stdout).toBe(event === 'beforeSubmitPrompt' ? '{"continue":true}' : '{}');
       expect(ms).toBeLessThan(1500);
     }
-    await copiesDone();
   }, 15_000);
 
   it('loads none of the SDK, nor what only a turn’s end or setup needs, before it answers', () => {
@@ -134,7 +157,8 @@ describe('the hook', () => {
     for (const file of loaded) {
       const text = readFileSync(join(dirname(CLI), file), 'utf8');
       expect(text, file).not.toMatch(/opentelemetry|recordRun/);
-      expect(text, file).not.toMatch(/from\s*"node:(?:crypto|child_process|http|https|net)"/);
+      // The bundle names a builtin without its `node:`.
+      expect(text, file).not.toMatch(/from\s*"(?:node:)?(?:crypto|child_process|http|https|net)"/);
     }
   });
 
@@ -154,6 +178,40 @@ describe('the hook', () => {
     const log = readFileSync(join(telmoni(), 'hook.log'), 'utf8');
     expect(log).toMatch(/^\S+ beforeSubmitPrompt: failed: SyntaxError\n$/);
   });
+
+  it('answers and exits, saying why, when Cursor never closes an input it has to wait for', async () => {
+    const held: Socket[] = [];
+    const server = createServer((socket) => void held.push(socket));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const input = connect((server.address() as AddressInfo).port, '127.0.0.1');
+    await once(input, 'connect');
+    try {
+      // libuv makes a child's stdin blocking but leaves its fd 3 alone: the shell moves that socket onto stdin.
+      const child = spawn('/bin/sh', ['-c', 'exec "$0" "$1" hook stop <&3 3<&-', process.execPath, CLI], {
+        stdio: ['ignore', 'pipe', 'ignore', input],
+        env: { PATH: process.env['PATH'] ?? '', HOME: home.path },
+      });
+      const out: Buffer[] = [];
+      child.stdout!.on('data', (chunk: Buffer) => out.push(chunk));
+      const code = await new Promise<number | null>((resolve) => {
+        const timer = setTimeout(() => {
+          child.kill();
+          resolve(-1);
+        }, 9_000);
+        child.on('exit', (exited) => {
+          clearTimeout(timer);
+          resolve(exited);
+        });
+      });
+      expect(code).toBe(0);
+      expect(Buffer.concat(out).toString('utf8')).toBe('{}');
+      expect(readFileSync(join(telmoni(), 'hook.log'), 'utf8')).toMatch(/^\S+ stop: failed: Error\n$/);
+    } finally {
+      input.destroy();
+      for (const socket of held) socket.destroy();
+      server.close();
+    }
+  }, 15_000);
 
   it('records a whole conversation: each turn sent by a detached copy as it ends, the spool emptied, nothing said kept', async () => {
     const ran = await conversation(fixture('ide'), { ...CURSOR_ENV, TELMONI_API_KEY: KEY, TELMONI_ENDPOINT: endpoint });
@@ -191,18 +249,7 @@ describe('the hook', () => {
     const stop = steps.findIndex((step) => step.payload.hook_event_name === 'stop');
     await conversation(steps.slice(0, stop + 1), env);
     // The copy waits a second for the turn's last hooks: long enough to look at it.
-    const copies = readdirSync('/proc')
-      .filter((pid) => /^\d+$/.test(pid))
-      .flatMap((pid) => {
-        try {
-          return [{ argv: readFileSync(`/proc/${pid}/cmdline`, 'utf8'), env: readFileSync(`/proc/${pid}/environ`, 'utf8') }];
-        } catch {
-          return [];
-        }
-      })
-      .filter(({ env }) => env.includes('TELMONI_CURSOR_HOOK_INPUT=') && env.split('\0').includes(`HOME=${home.path}`));
-    expect(copies).toHaveLength(1);
-    expect(copies[0]!.argv.split('\0')).toEqual([process.execPath, CLI, 'hook', 'stop', '']);
+    expect(copies()).toEqual([[process.execPath, CLI, 'hook', 'stop', '']]);
     expect(await until(() => runs() === 1, 20_000)).toBe(true);
   }, 30_000);
 
@@ -213,7 +260,6 @@ describe('the hook', () => {
     const names = ingest.spans().map((span) => span.name);
     expect(names.filter((name) => name.startsWith('execute_tool '))).toEqual(['execute_tool Grep', 'execute_tool Read']);
     expect(names).toContain('chat composer-2.5');
-    await copiesDone();
   }, 30_000);
 
   it('keeps and sends nothing without a key, and says so once a conversation', async () => {
@@ -227,6 +273,18 @@ describe('the hook', () => {
     expect(readFileSync(log, 'utf8')).toMatch(/: no key: /);
     expect(listing()).toBe(`${IDE}.json hook.log`);
     expect(ingest.received).toEqual([]);
+  }, 30_000);
+
+  it('says once a conversation that the SDK refuses its endpoint, in its words, never the path, the userinfo or the key', async () => {
+    const env = { TELMONI_API_KEY: KEY, TELMONI_ENDPOINT: 'http://person:SENTINEL@telmoni.example.com/SENTINEL' };
+    const ran = await conversation(fixture('ide'), env);
+    expect(ran.every(({ code }) => code === 0)).toBe(true);
+    await copiesDone();
+    const log = logged();
+    expect(log.trim().split('\n')).toHaveLength(1);
+    expect(log).toMatch(/: endpoint refused by the SDK \(the endpoint must be an http:\/\/ or https:\/\/ URL\): /);
+    for (const secret of ['SENTINEL', 'person', KEY]) expect(log).not.toContain(secret);
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8')).toContain('"hook_event_name":"stop"');
   }, 30_000);
 
   it('keeps every line of hooks that run at once, and sends their turn once', async () => {
@@ -253,9 +311,8 @@ describe('the hook', () => {
     const second = steps.findIndex((step) => step.payload.generation_id === 'a1b2c3d4-0002-4a00-8000-000000000002');
     ingest.status = 503;
     await conversation(steps.slice(0, second), env);
-    // The copy done: what it could not send logged, and its lock let go.
-    const done = (): boolean => logged().includes('not sent:') && !existsSync(join(telmoni(), `${IDE}.lock`));
-    expect(await until(done, 20_000)).toBe(true);
+    expect(await until(() => logged().includes('not sent:'), 20_000)).toBe(true);
+    await copiesDone();
     expect(stored()).toEqual([]);
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8')).toContain('"hook_event_name":"stop"');
     ingest.status = 200;

@@ -18,8 +18,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { isIP } from 'node:net';
-import { dirname, join, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
+
+import { Telmoni } from 'telmoni';
 
 import {
   type HooksFile,
@@ -49,20 +50,40 @@ export interface Options {
 /** As the platform mints a key: `telmoni_` and 32 random bytes in URL-safe base64. */
 const KEY = /^telmoni_[A-Za-z0-9_-]{43}$/;
 
-/** As the SDK sends: HTTPS, or plain HTTP to this machine alone, since every export carries the key. */
-function isEndpoint(value: string): boolean {
-  let url: URL;
+/** Why the SDK would not send to `endpoint`, in its own words, which name at most the host; nothing where it would. */
+async function refusalOf(endpoint: string): Promise<string | undefined> {
+  let client: Telmoni;
   try {
-    url = new URL(value);
-  } catch {
-    return false;
+    client = new Telmoni({ endpoint });
+  } catch (error) {
+    if (error instanceof TypeError) return error.message;
+    throw error;
   }
-  if (url.protocol === 'https:') return true;
-  if (url.protocol !== 'http:') return false;
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (isIP(host) === 4) return host.startsWith('127.');
-  if (isIP(host) === 6) return host === '::1';
-  return host === 'localhost' || host.endsWith('.localhost');
+  await client.shutdown();
+  return undefined;
+}
+
+/**
+ * The node the user's hooks run: the one on `PATH` that is this one, a link
+ * that outlives an upgrade as Homebrew's does; else this one by its own path.
+ */
+export function nodeOf(env: NodeJS.ProcessEnv): string {
+  let running: string;
+  try {
+    running = realpathSync(process.execPath);
+  } catch {
+    return process.execPath;
+  }
+  const name = process.platform === 'win32' ? 'node.exe' : 'node';
+  for (const dir of (env['PATH'] ?? '').split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    try {
+      if (realpathSync(join(dir, name)) === running) return join(dir, name);
+    } catch {
+      // No node there.
+    }
+  }
+  return process.execPath;
 }
 
 /** The repository the working folder is in, whose root holds the `.cursor` its cloud agents read; else the folder itself. */
@@ -199,8 +220,9 @@ export async function setup(options: Options): Promise<number> {
     return 1;
   }
   const endpoint = options.env['TELMONI_ENDPOINT']?.trim() || saved.endpoint;
-  if (endpoint !== undefined && !isEndpoint(endpoint)) {
-    print('TELMONI_ENDPOINT must be an https:// address, or http:// to this machine. Nothing was changed.');
+  const refused = endpoint === undefined ? undefined : await refusalOf(endpoint);
+  if (refused !== undefined) {
+    print(`TELMONI_ENDPOINT is not one the SDK sends to: ${refused}. Nothing was changed.`);
     return 1;
   }
   const key: KeyFile = { apiKey };

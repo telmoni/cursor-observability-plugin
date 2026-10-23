@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { RunRecord } from 'telmoni';
@@ -7,11 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Line } from '../src/input';
 import { log } from '../src/log';
 import { runIdOf } from '../src/record';
-import { type HookInput, sync } from '../src/session';
+import { Sender } from '../src/send';
+import { type Deps, type HookInput, sync } from '../src/session';
 import type { Settings } from '../src/settings';
 import { append, compact, readSpool, recover, sweep } from '../src/spool';
 import { readState, withLock } from '../src/state';
-import { BASE, type Step, fixture, replay, tempDir } from './helpers';
+import { BASE, FakeIngest, type Step, fixture, replay, tempDir } from './helpers';
 
 let dir: { path: string; remove: () => void };
 let settings: Settings;
@@ -43,7 +44,7 @@ function through(steps: readonly Step[], from: number, count: number): void {
   replay(steps.slice(from, count), settings.dir, BASE, ids);
 }
 
-function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}): Promise<void> {
+function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}, more: Partial<Deps> = {}): Promise<void> {
   return sync({ event, conversationId }, { ...settings, ...overrides }, {
     sender: () => ({
       send: (record) => {
@@ -55,6 +56,7 @@ function hook(event: HookInput['event'], conversationId: string, overrides: Part
       close: () => Promise.resolve(),
     }),
     log: (line) => void logged.push(line),
+    ...more,
   });
 }
 
@@ -259,6 +261,43 @@ describe('a copy', () => {
     expect(logged).toHaveLength(1);
     expect(logged[0]).toMatch(/^no key/);
   });
+
+  it('logs what ingest kept less of for every turn, not only the first, each sent through a client of its own', async () => {
+    const ingest = new FakeIngest();
+    const endpoint = await ingest.start();
+    ingest.refusal = (span) => (span.name === 'execute_tool Shell' ? 'not kept' : undefined);
+    replay(fixture('ide'), settings.dir, BASE, ids);
+    const log = (line: string): void => void logged.push(line);
+    try {
+      await sync({ event: 'sessionEnd', conversationId: IDE }, { ...settings, endpoint }, { sender: (to) => new Sender(to, log), log });
+    } finally {
+      await ingest.stop();
+    }
+    // The first two turns ran the shell, and the third did not.
+    const partly = 'sent, though ingest kept less than all of it: telmoni: the server refused a span: not kept';
+    expect(logged).toEqual([partly, partly]);
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('names an endpoint the SDK refuses once a conversation, in the SDK’s words, and sends nothing', async () => {
+    replay(fixture('ide'), settings.dir, BASE, ids);
+    replay(fixture('headless'), settings.dir, BASE, ids);
+    const real: Partial<Deps> = { sender: (to) => new Sender(to, (line) => void logged.push(line)) };
+    const clear = { endpoint: 'http://telmoni.example.com/SENTINEL/path' };
+    await hook('stop', IDE, clear, real);
+    await hook('sessionEnd', IDE, clear, real);
+    await hook('sessionEnd', HEADLESS, { endpoint: 'https://person:SENTINEL@telmoni.example.com' }, real);
+    const advice = 'run telmoni-cursor-observability setup, or set TELMONI_ENDPOINT; nothing is sent until then';
+    expect(logged).toEqual([
+      `endpoint refused by the SDK (refusing to send the API key over unencrypted HTTP to 'telmoni.example.com'; use HTTPS): ${advice}`,
+      `endpoint refused by the SDK (the endpoint must be an http:// or https:// URL): ${advice}`,
+    ]);
+    // No path, no userinfo, no key.
+    for (const secret of ['SENTINEL', 'person', 'telmoni_test']) expect(logged.join('\n')).not.toContain(secret);
+    expect(readState(settings.dir, IDE).sent).toEqual([]);
+    expect(readSpool(settings.dir, IDE).filter((line) => line.hook_event_name === 'stop')).toHaveLength(3);
+    expect(readSpool(settings.dir, HEADLESS)).toHaveLength(fixture('headless').length);
+  });
 });
 
 describe('the spool', () => {
@@ -318,6 +357,23 @@ describe('a spool cut short', () => {
   });
 });
 
+describe('a spool that cannot be read', () => {
+  const lineAt = (id: string): Line => ({ id, at: BASE, hook_event_name: 'postToolUse', generation_id: 'g-1' });
+
+  it.skipIf(process.getuid?.() === 0)('is never taken for an empty one, nor deleted, set aside or not', async () => {
+    append(settings.dir, 'c-1', lineAt('a'));
+    const spool = join(settings.dir, 'c-1.jsonl');
+    chmodSync(spool, 0o000);
+    expect(() => readSpool(settings.dir, 'c-1')).toThrow();
+    await expect(compact(settings.dir, 'c-1', new Set(['b']))).rejects.toThrow();
+    expect(() => recover(settings.dir, 'c-1')).toThrow();
+    // Readable again, what was set aside is put back whole.
+    chmodSync(`${spool}.aside`, 0o600);
+    recover(settings.dir, 'c-1');
+    expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['a']);
+  });
+});
+
 describe('the log', () => {
   it('moves aside past a megabyte and begins again, every line the person’s alone', () => {
     const line = 'x'.repeat(1024);
@@ -330,6 +386,33 @@ describe('the log', () => {
 });
 
 describe('the lock', () => {
+  it('is given up past its wait at a stop, which a later stop or the session’s end follows, and outwaited at the session’s end', async () => {
+    replay(fixture('ide'), settings.dir, BASE, ids);
+    let entered: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const holder = withLock(settings.dir, IDE, 1000, async () => {
+      entered();
+      await held;
+    });
+    await inside;
+    let ended = false;
+    const ending = hook('sessionEnd', IDE, {}, { lockWaitMs: 10 }).then(() => {
+      ended = true;
+    });
+    await hook('stop', IDE, {}, { lockWaitMs: 10 });
+    expect(logged).toEqual([
+      "busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left",
+    ]);
+    // The stop gave up after the session's end began to wait, and that waits on.
+    expect(ended).toBe(false);
+    release();
+    await Promise.all([holder, ending]);
+    expect(sent).toHaveLength(3);
+    expect(logged).toHaveLength(1);
+  });
+
   it('lets one copy of a conversation work at a time, and is free once it is done', async () => {
     const lockDir = join(dir.path, 'locks');
     const order: string[] = [];
@@ -379,5 +462,25 @@ describe('the lock', () => {
     mkdirSync(lockDir, { recursive: true });
     writeFileSync(join(lockDir, 'c-1.lock'), '');
     expect(await withLock(lockDir, 'c-1', 300, async () => undefined)).toBe(false);
+  });
+
+  it('leaves in place a lock another copy took from it', async () => {
+    const lockDir = join(dir.path, 'locks');
+    const lock = join(lockDir, 'c-1.lock');
+    await withLock(lockDir, 'c-1', 1000, async () => {
+      // Another copy, finding this one's lock stale, took it.
+      writeFileSync(lock, 'another copy');
+    });
+    expect(readFileSync(lock, 'utf8')).toBe('another copy');
+  });
+
+  it('is kept in a folder only its owner can open, readable by its owner alone', async () => {
+    const lockDir = join(dir.path, 'locks');
+    let mode = 0;
+    await withLock(lockDir, 'c-1', 1000, async () => {
+      mode = statSync(join(lockDir, 'c-1.lock')).mode & 0o777;
+    });
+    expect(mode).toBe(0o600);
+    expect(statSync(lockDir).mode & 0o777).toBe(0o700);
   });
 });

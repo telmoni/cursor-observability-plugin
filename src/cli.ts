@@ -5,9 +5,7 @@
  * `hook <event>` is what Cursor runs at each event.
  */
 
-import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { hook } from './hook.js';
@@ -25,30 +23,6 @@ const USAGE = `Usage:
   telmoni-cursor-observability hook <event>        What Cursor runs at each event.
 `;
 
-/**
- * The node the user's hooks run: the one on `PATH` where it is this one — a
- * link that outlives an upgrade, as Homebrew's does — else this one by its
- * own path.
- */
-function nodeOf(env: NodeJS.ProcessEnv): string {
-  let running: string;
-  try {
-    running = realpathSync(process.execPath);
-  } catch {
-    return process.execPath;
-  }
-  const name = process.platform === 'win32' ? 'node.exe' : 'node';
-  for (const dir of (env['PATH'] ?? '').split(delimiter)) {
-    if (!isAbsolute(dir)) continue;
-    try {
-      if (realpathSync(join(dir, name)) === running) return join(dir, name);
-    } catch {
-      // No node there.
-    }
-  }
-  return process.execPath;
-}
-
 const [command, ...args] = process.argv.slice(2);
 
 if (command === 'hook') {
@@ -57,7 +31,7 @@ if (command === 'hook') {
   process.exitCode = 0;
 } else if ((command === 'setup' || command === 'remove') && args.every((arg) => arg === '--project')) {
   // Imported here, not above: Cursor waits on every hook, and a hook needs none of it.
-  const { askKey, remove, setup } = await import('./setup.js');
+  const { askKey, nodeOf, remove, setup } = await import('./setup.js');
   const options = {
     project: args.includes('--project'),
     home: homedir(),

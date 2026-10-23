@@ -1,7 +1,7 @@
 import type { RunRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Sender } from '../src/send';
+import { Sender, flushSecondsOf } from '../src/send';
 import { FakeIngest, attributesOf } from './helpers';
 
 let ingest: FakeIngest;
@@ -131,5 +131,18 @@ describe('a sender', () => {
     }
     expect(ingest.received).toEqual([]);
     expect(logged).toEqual(['turn refused by the SDK: RangeError']);
+  });
+});
+
+describe('a turn’s flush', () => {
+  it('waits out the SDK’s worst case for each of its exports of 512 spans, 150 s, and half a minute more', () => {
+    const calls = (count: number): RunRecord['inside'] =>
+      Array.from({ length: count }, (_, index) => ({ type: 'tool_call' as const, name: 'Read', start: at(0) + index, end: at(0) + index + 1 }));
+    const record = turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d');
+    // The run and its start are two spans more.
+    expect(flushSecondsOf(record)).toBe(180);
+    expect(flushSecondsOf({ ...record, inside: calls(510) })).toBe(180);
+    expect(flushSecondsOf({ ...record, inside: calls(511) })).toBe(330);
+    expect(flushSecondsOf({ ...record, inside: calls(3000) })).toBe(30 + 150 * 6);
   });
 });

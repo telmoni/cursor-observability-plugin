@@ -86,6 +86,8 @@ export class FakeIngest {
   /** Every span stored. */
   readonly stored: JsonSpan[] = [];
   status = 200;
+  /** Why it refuses a span, where it does: by default, as ingest does, one whose name is past its cap. */
+  refusal: (span: JsonSpan) => string | undefined = (span) => (nameOf(span).length > NAME_MAX ? 'name over its cap' : undefined);
   readonly #answered = new Map<string, string>();
   #server: Server | undefined;
 
@@ -107,8 +109,9 @@ export class FakeIngest {
           const refused: string[] = [];
           for (const span of spansIn(body)) {
             if (span.name === 'telmoni.run.start') continue;
-            if (nameOf(span).length > NAME_MAX) refused.push(`span ${span.spanId} refused: name over its cap`);
-            else this.stored.push(span);
+            const why = this.refusal(span);
+            if (why === undefined) this.stored.push(span);
+            else refused.push(`span ${span.spanId} refused: ${why}`);
           }
           answer = JSON.stringify({
             partialSuccess: refused.length === 0 ? null : { rejectedSpans: refused.length, errorMessage: refused.join('\n') },
