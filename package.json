@@ -1,6 +1,6 @@
 {
   "name": "@telmoni/cursor-observability-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Telmoni for Cursor: each turn of an agent conversation recorded as a run, metadata only",
   "license": "Apache-2.0",
   "author": "Kendrick Lawton",
