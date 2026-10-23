@@ -4,7 +4,7 @@ Records each turn of your [Cursor](https://cursor.com) agent conversations in [T
 
 ## Install
 
-You need Cursor, and Node.js 22 or later with npm. Make a project API key holding the **ingest** scope on your project's API keys page, then:
+You need Cursor, and Node.js 22.23.4, 24.22.1, 26.12.1 or later (October 2026's security releases) with npm. Make a project API key holding the **ingest** scope on your project's API keys page, then:
 
 ```sh
 npm install -g @telmoni/cursor-observability-plugin
