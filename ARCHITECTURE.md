@@ -96,6 +96,8 @@ Cursor runs Claude Code's hooks too, an installed plugin's among them, handing t
 
 The npm package `@telmoni/cursor-observability-plugin` holds `dist/` — tsup's bundle of the plugin, the SDK and OpenTelemetry, split so the hook's entry (`dist/telmoni-cursor-observability.mjs`, the bin `telmoni-cursor-observability`) loads none of the SDK — beside `package.json`, `README.md` and `LICENSE`, which npm always adds; it needs Node 22 or later, and nothing installed beside it. A person installs it with `npm install -g`, never by cloning the repository into `~/.cursor/plugins/local/`, which would bring its source and tests. A listing in Cursor's marketplace, which installs from a Git repository, waits until one can install no more than the package.
 
+**A release** is the version bumped in one commit on `main` — `package.json` and both of `package-lock.json`'s — and nothing else by hand. Its push starts `.github/workflows/release.yml`, which waits for CI to pass on that commit, verifies and packs the package as CI does, and waits for the owner's approval in its `release` environment: one job tags the commit `v*`, and another stages the package on npm by trusted publishing, with provenance, so no token is stored anywhere. The GitHub release follows, and the version goes live once the owner approves it in the package's *Staged Packages* tab on npmjs.com. `0.1.0` went up by hand, untagged, so the first release from CI is the next version.
+
 The SDK is a development dependency, the registry's `telmoni`, bundled at build.
 
 ## Testing
