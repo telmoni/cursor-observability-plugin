@@ -1,52 +1,66 @@
 /**
- * What has been sent of each conversation, `<conversation_id>.json` in the
- * plugin's folder, and the lock that keeps two copies of one conversation's
- * hook from sending the same turns at once.
+ * What has been sent of each conversation, `<conversation_id>.json` in the plugin's folder, and the lock that keeps two
+ * copies of one conversation's hook from sending the same turns at once.
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 export interface ConversationState {
   /**
-   * The turns already sent, latest last: a line of one that comes after it
-   * was sent — a background subagent's, say — is dropped rather than sent as
-   * a second run under the same id.
+   * The turns already sent, latest last: a line of one that comes after it was sent — a background subagent's, say — is
+   * dropped rather than sent as a second run under the same id.
    */
   sent: string[];
   /** Whether a missing key has been logged for this conversation, so it is logged once. */
   warnedNoKey?: boolean;
+  /** Whether a key file passed over has been logged for this conversation, so it is logged once. */
+  warnedKeyFile?: boolean;
   /** Whether an endpoint the SDK refuses has been logged for this conversation, so it is logged once. */
   warnedEndpoint?: boolean;
 }
 
 /** Only a turn just sent can have a line still to come. */
-const SENT_KEPT = 64;
+export const SENT_KEPT = 64;
 
+/** The conversation's state: afresh where none was saved; one that cannot be read throws, for the copy to say so. */
 export function readState(dir: string, conversationId: string): ConversationState {
+  let text: string;
   try {
-    const parsed = JSON.parse(readFileSync(join(dir, `${conversationId}.json`), 'utf8')) as Partial<ConversationState>;
-    const state: ConversationState = {
-      sent: Array.isArray(parsed.sent) ? parsed.sent.filter((id): id is string => typeof id === 'string') : [],
-    };
-    if (parsed.warnedNoKey === true) state.warnedNoKey = true;
-    if (parsed.warnedEndpoint === true) state.warnedEndpoint = true;
-    return state;
-  } catch {
-    return { sent: [] };
+    text = readFileSync(join(dir, `${conversationId}.json`), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { sent: [] };
+    throw error;
   }
+  const value: unknown = JSON.parse(text);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('conversation state is not an object');
+  const parsed = value as Partial<ConversationState>;
+  const state: ConversationState = {
+    sent: Array.isArray(parsed.sent) ? parsed.sent.filter((id): id is string => typeof id === 'string') : [],
+  };
+  if (parsed.warnedNoKey === true) state.warnedNoKey = true;
+  if (parsed.warnedKeyFile === true) state.warnedKeyFile = true;
+  if (parsed.warnedEndpoint === true) state.warnedEndpoint = true;
+  return state;
 }
 
 export function writeState(dir: string, conversationId: string, state: ConversationState): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, `${conversationId}.json`);
   const next: ConversationState = { ...state, sent: state.sent.slice(-SENT_KEPT) };
-  // Written aside and renamed over, so a copy killed mid-write leaves the
-  // last state whole rather than half of the new one.
-  writeFileSync(`${path}.tmp`, JSON.stringify(next), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
+  // Synced aside, then renamed over: a copy killed, or a machine stopped, mid-write leaves the last state whole.
+  // Its own, so a copy that took a stale lock in the same instant as another never writes into this one's.
+  const temporary = `${path}.${process.pid}.tmp`;
+  const fd = openSync(temporary, 'w', 0o600);
+  try {
+    writeFileSync(fd, JSON.stringify(next));
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(temporary, path);
 }
 
 /** A lock untouched this long was left by a copy that died holding it. */
@@ -83,9 +97,7 @@ export async function withLock(
       await sleep(200);
     }
   }
-  // Touched while held: a copy sending a long turn, or to a slow Telmoni, is
-  // never taken for one that died, and another never compacts the spool
-  // under it.
+  // Touched while held: a copy sending a long turn, or to a slow Telmoni, is never taken for one that died, and another never compacts the spool under it.
   const fresh = setInterval(() => {
     try {
       const now = new Date();

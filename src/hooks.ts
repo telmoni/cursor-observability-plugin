@@ -1,8 +1,6 @@
 /**
- * Cursor's `hooks.json`, the user's (`~/.cursor/hooks.json`) or a
- * repository's (`.cursor/hooks.json`), and the plugin's entries in it, told
- * apart from every other tool's by the command they run: setup adds them again
- * without doubling them, and remove takes them out leaving the rest as it was.
+ * Cursor's `hooks.json`, the user's (`~/.cursor/hooks.json`) or a repository's (`.cursor/hooks.json`), and the plugin's
+ * entries in it, told from every other tool's by the command they run: setup adds them once, remove leaves the rest as it was.
  */
 
 import { type CursorEvent, EVENTS } from './input.js';
@@ -28,22 +26,16 @@ export function isOurs(entry: unknown): boolean {
 }
 
 /**
- * A path as the shell Cursor runs a hook's command in reads it whole: in
- * single quotes, inside which a POSIX shell expands nothing, and PowerShell,
- * which Cursor runs the command in on Windows, nothing but a quote doubled —
- * any of its four typographic single quotes among them.
+ * A path as the shell Cursor runs a hook's command in reads it whole: in single quotes, inside which a POSIX shell
+ * expands nothing and PowerShell, Cursor's shell on Windows, nothing but a quote doubled — its four typographic single quotes among them.
  */
 function quote(path: string, platform: NodeJS.Platform): string {
   return platform === 'win32' ? `'${path.replace(/['\u2018-\u201b]/g, '$&$&')}'` : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
 /**
- * The user's own hooks run the node that ran setup and the installed bundle,
- * both by absolute path, since Cursor opened from the Dock or a launcher has
- * no shell's `PATH`; PowerShell reads a quoted path opening a command as a
- * string, not a program, unless `&` calls it. A repository's run the bin
- * through `PATH`, since they run on teammates' machines and in cloud agents'
- * VMs, wherever each installed it; `--project` tells the hook which it is.
+ * The user's own hooks run the node that ran setup and the installed bundle by absolute path, since Cursor opened from
+ * the Dock has no shell's `PATH` (PowerShell needs `&` to call a quoted path); a repository's run the bin through `PATH`, wherever each teammate or cloud agent installed it.
  */
 export function commandFor(
   scope: Scope,
@@ -119,9 +111,8 @@ export function holdsOurs(config: HooksFile): boolean {
 const PROJECT = /\s--project(?:\s|$)/;
 
 /**
- * Whether `config` runs the plugin at `event` as a repository's hooks do. A
- * workspace that is the home folder has the person's own hooks file for its
- * `.cursor/hooks.json`, whose entries are no repository's.
+ * Whether `config` runs the plugin at `event` as a repository's hooks do. A workspace that is the home folder has the
+ * person's own hooks file for its `.cursor/hooks.json`, whose entries are no repository's.
  */
 export function registersProject(config: unknown, event: CursorEvent): boolean {
   if (config === null || typeof config !== 'object') return false;

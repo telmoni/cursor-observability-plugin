@@ -1,20 +1,13 @@
 /**
- * What Cursor runs at each event the plugin is registered for:
- * `telmoni-cursor-observability hook <event>`.
- *
- * It answers Cursor first, keeps what may be kept of the event in the
- * conversation's spool, and at `stop` and `sessionEnd` starts a detached copy
- * of itself, handing it the conversation, then exits. Cursor waits on its
- * hooks, on one per tool call among them, so the hook never loads the SDK and
- * never waits on the network: the copy waits for the turn's last hooks to
- * finish, then sends what has ended (`session.ts`).
+ * What Cursor runs at each event, `telmoni-cursor-observability hook <event>`: it answers Cursor first, keeps what may be
+ * kept of the event in the spool, and at `stop` and `sessionEnd` hands the conversation to a detached copy that sends (`session.ts`); Cursor waits on every hook, so it never loads the SDK.
  */
 
-import { readFileSync, readSync, writeSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { accessSync, constants, readFileSync, readSync, writeSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 
 import { registersProject } from './hooks.js';
-import { CLOSING, type CursorEvent, answerFor, isEvent, isId, received } from './input.js';
+import { type CursorEvent, answerFor, isClosing, isEvent, isId, received } from './input.js';
 import { kindOf, log } from './log.js';
 import type { HookInput } from './session.js';
 import { type Settings, settingsFrom } from './settings.js';
@@ -38,10 +31,28 @@ function lineId(): string {
     .padStart(12, '0');
 }
 
+/** Whether the bytes read end in `}`, as a whole event does but for whitespace. */
+function endsInBrace(bytes: Buffer, length: number): boolean {
+  let at = length - 1;
+  while (at >= 0 && (bytes[at] === 0x20 || bytes[at] === 0x0a || bytes[at] === 0x0d || bytes[at] === 0x09)) at--;
+  return at >= 0 && bytes[at] === 0x7d;
+}
+
+/** The event read so far, where it is whole: Cursor may leave its end of the pipe open once it has written one. */
+function whole(chunks: Buffer[]): string | undefined {
+  const text = Buffer.concat(chunks).toString('utf8');
+  try {
+    JSON.parse(text.replace(/^\uFEFF/, ''));
+    return text;
+  } catch {
+    return undefined;
+  }
+}
+
 function streamed(chunks: Buffer[], size: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('no hook input'));
+      reject(Object.assign(new Error('no hook input'), { name: 'NoHookInput' }));
       // Let go of it, or the process lives on for as long as it stays open.
       process.stdin.destroy();
     }, INPUT_WAIT_MS);
@@ -54,6 +65,11 @@ function streamed(chunks: Buffer[], size: number): Promise<string> {
         return;
       }
       chunks.push(chunk);
+      const text = endsInBrace(chunk, chunk.length) ? whole(chunks) : undefined;
+      if (text === undefined) return;
+      clearTimeout(timer);
+      process.stdin.destroy();
+      resolve(text);
     });
     process.stdin.on('end', () => {
       clearTimeout(timer);
@@ -67,10 +83,8 @@ function streamed(chunks: Buffer[], size: number): Promise<string> {
 }
 
 /**
- * What Cursor wrote on stdin, read to its end. Read straight from the file
- * descriptor: `process.stdin`, a socket's stream, costs a hook Cursor waits
- * on more than the rest of its work, and is used only where the pipe will
- * not block.
+ * What Cursor wrote on stdin, read to its end straight from the file descriptor: `process.stdin`, a socket's stream,
+ * costs a hook Cursor waits on more than the rest of its work, and is used only where the pipe would block.
  */
 function readInput(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -90,24 +104,44 @@ function readInput(): Promise<string> {
     size += read;
     if (size > MAX_INPUT_BYTES) throw new RangeError('hook input too large');
     chunks.push(Buffer.from(buffer.subarray(0, read)));
+    // A blocking read would wait on a pipe Cursor leaves open for good: an event read whole is all there is.
+    const text = endsInBrace(buffer, read) ? whole(chunks) : undefined;
+    if (text !== undefined) return Promise.resolve(text);
   }
   return Promise.resolve(Buffer.concat(chunks).toString('utf8'));
 }
 
 /**
- * Whether the workspace's own hooks run the plugin at `event` too. Cursor
- * runs the user's and the workspace's both, and a cloud agent the workspace's
- * alone, so where both are set up the workspace's record the conversation and
- * the user's stand aside, rather than every event be kept twice.
+ * Whether the workspace's own hooks run the plugin at `event` too: Cursor runs the user's and the workspace's both, a
+ * cloud agent the workspace's alone, so where both are set up the workspace's record and the user's stand aside.
  */
 function projectRuns(env: NodeJS.ProcessEnv, event: CursorEvent): boolean {
   const root = env['CURSOR_PROJECT_DIR']?.trim();
   if (!root || !isAbsolute(root)) return false;
   try {
-    return registersProject(JSON.parse(readFileSync(join(root, '.cursor', 'hooks.json'), 'utf8')), event);
+    if (!registersProject(JSON.parse(readFileSync(join(root, '.cursor', 'hooks.json'), 'utf8')), event)) return false;
   } catch {
     return false;
   }
+  // They run the bin from `PATH`, in the workspace: where it is not there, they cannot start, and the user's record.
+  return onPath(env, 'telmoni-cursor-observability', root);
+}
+
+/** Whether `name` is a program in a folder of `env`'s `PATH`, a relative one read from `cwd`, by Windows's `PATHEXT` there. */
+function onPath(env: NodeJS.ProcessEnv, name: string, cwd: string): boolean {
+  const names =
+    process.platform === 'win32' ? (env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((ext) => `${name}${ext}`) : [name];
+  for (const folder of (env['PATH'] ?? '').split(delimiter)) {
+    for (const file of names) {
+      try {
+        accessSync(join(isAbsolute(folder) ? folder : join(cwd, folder), file), constants.X_OK);
+        return true;
+      } catch {
+        // Not here.
+      }
+    }
+  }
+  return false;
 }
 
 function handedOffFrom(raw: unknown): HookInput | undefined {
@@ -115,8 +149,11 @@ function handedOffFrom(raw: unknown): HookInput | undefined {
   const fields = raw as Record<string, unknown>;
   const event = fields['event'];
   const conversationId = fields['conversation_id'];
-  if ((event !== 'stop' && event !== 'sessionEnd') || !isId(conversationId)) return undefined;
-  return { event, conversationId };
+  if (!isClosing(event) || !isId(conversationId)) return undefined;
+  const input: HookInput = { event, conversationId };
+  const at = fields['at'];
+  if (typeof at === 'number' && Number.isFinite(at) && at > 0) input.at = at;
+  return input;
 }
 
 async function copy(handedOff: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -127,16 +164,18 @@ async function copy(handedOff: string, env: NodeJS.ProcessEnv): Promise<void> {
     // No home folder to keep anything in, nor to say so.
     return;
   }
+  let tag: string | undefined;
   try {
     const input = handedOffFrom(JSON.parse(handedOff));
     if (input === undefined) return;
-    const tag = `${input.event} ${input.conversationId.slice(0, 8)}:`;
-    const write = (line: string): void => log(settings.dir, `${tag} ${line}`);
+    const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
+    tag = tagged;
+    const write = (line: string): void => log(settings.dir, `${tagged} ${line}`);
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
     const [{ sync }, { Sender }] = await Promise.all([import('./session.js'), import('./send.js')]);
     await sync(input, settings, { sender: (destination) => new Sender(destination, write), log: write });
   } catch (error) {
-    log(settings.dir, `failed: ${kindOf(error)}`);
+    log(settings.dir, tag === undefined ? `failed: ${kindOf(error)}` : `${tag} failed: ${kindOf(error)}`);
   } finally {
     sweep(settings.dir, Date.now());
   }
@@ -151,8 +190,7 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
     return;
   }
   try {
-    // Straight to the file descriptor, as stdin is read: `process.stdout` on
-    // Cursor's pipe is a socket's stream, and costs as much again.
+    // Straight to the file descriptor, as stdin is read: `process.stdout` on Cursor's pipe is a socket's stream, and costs as much again.
     writeSync(1, answerFor(event));
   } catch {
     // Cursor gone before the answer is no error of the hook's.
@@ -173,16 +211,16 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
       return;
     }
     if (!args.includes('--project') && projectRuns(env, event)) return;
-    // Without a key nothing is sent, so nothing of the conversation is kept.
-    if (settings.apiKey !== undefined) append(settings.dir, got.conversationId, got.line);
-    if (!CLOSING.has(event)) return;
-    const input: HookInput = { event: event === 'stop' ? 'stop' : 'sessionEnd', conversationId: got.conversationId };
+    // Without a key, or past a key file passed over, nothing is sent, so nothing of the conversation is kept.
+    if (settings.apiKey !== undefined && settings.keyFileProblem === undefined) append(settings.dir, got.conversationId, got.line);
+    if (!isClosing(event)) return;
+    const input: HookInput = { event, conversationId: got.conversationId, at };
     const { spawn } = await import('node:child_process');
     const child = spawn(process.execPath, [script, 'hook', event], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
-      env: { ...env, [HANDOFF]: JSON.stringify({ event: input.event, conversation_id: input.conversationId }) },
+      env: { ...env, [HANDOFF]: JSON.stringify({ event: input.event, conversation_id: input.conversationId, at: input.at }) },
     });
     child.on('error', (error) => log(settings.dir, `${event}: could not start the sender: ${kindOf(error)}`));
     child.unref();

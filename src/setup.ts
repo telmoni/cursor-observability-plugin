@@ -1,9 +1,6 @@
 /**
- * `telmoni-cursor-observability setup` and `remove`: the plugin's hooks merged into
- * Cursor's `hooks.json`, the user's or, with `--project`, the repository's,
- * and the key written to `~/.cursor/telmoni.json`, mode `600`; then both taken
- * out again. The key's shape is checked here and nowhere is it sent: the first
- * turn's export is what tells whether the platform takes it, in `hook.log`.
+ * `telmoni-cursor-observability setup` and `remove`: the plugin's hooks merged into Cursor's `hooks.json` (the user's,
+ * or the repository's with `--project`) and the key written to `~/.cursor/telmoni.json`, mode `600`; then both taken out again.
  */
 
 import { createHash } from 'node:crypto';
@@ -12,6 +9,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -138,9 +136,8 @@ function writeHooks(path: string, config: HooksFile): void {
 }
 
 /**
- * Where setup keeps a hooks file as it found it, before it first added the
- * plugin's hooks: remove, finding the file as setup left it, puts back its
- * very bytes rather than the same hooks written out afresh.
+ * Where setup keeps a hooks file as it found it, before it first added the plugin's hooks: remove, finding the file as
+ * setup left it, puts back its very bytes rather than the same hooks written out afresh.
  */
 function foundOf(file: string, home: string): string {
   return join(pathsOf(home).dir, `hooks.json.found-${createHash('sha256').update(file).digest('hex').slice(0, 16)}`);
@@ -204,6 +201,11 @@ export async function setup(options: Options): Promise<number> {
   }
   const paths = pathsOf(options.home);
   const saved = readKeyFile(paths.keyFile);
+  // Written over, it would lose an endpoint it may hold, and the key would go to the default instead.
+  if (saved.problem !== undefined) {
+    print(`${shown(paths.keyFile, options.home)} not used (${saved.problem}): fix it or move it aside, then run setup again. Nothing was changed.`);
+    return 1;
+  }
   let apiKey = options.env['TELMONI_API_KEY']?.trim() || undefined;
   if (apiKey === undefined && options.ask !== undefined) {
     apiKey = (await options.ask(saved.apiKey !== undefined)).trim() || undefined;
@@ -248,9 +250,7 @@ export function remove(options: Options): number {
   if (config !== undefined) {
     const left = withoutOursIn(config);
     const found = readFound(kept);
-    // As setup left it: what it found, to the byte. A file that held the
-    // plugin's hooks alone goes, unless it is a link, which would be left
-    // pointing at nothing.
+    // As setup left it: what it found, to the byte. A file that held the plugin's hooks alone goes, unless it is a link, which would be left pointing at nothing.
     if (found !== undefined && same(left, leftOf(found))) writeThrough(file, found);
     else if (left === undefined && !lstatSync(file).isSymbolicLink()) rmSync(file, { force: true });
     else writeHooks(file, left ?? { version: 1, hooks: {} });
@@ -260,10 +260,25 @@ export function remove(options: Options): number {
   if (!options.project) {
     const paths = pathsOf(options.home);
     rmSync(paths.keyFile, { force: true });
-    rmSync(paths.dir, { recursive: true, force: true });
-    print(`Deleted your key, ${shown(paths.keyFile, options.home)}, and the plugin's folder, ${shown(paths.dir, options.home)}.`);
+    const kept = clearFolder(paths.dir);
+    const but = kept ? ", but what setup --project found of a repository's hooks file, for that repository's remove --project" : '';
+    print(`Deleted your key, ${shown(paths.keyFile, options.home)}, and the plugin's folder, ${shown(paths.dir, options.home)}${but}.`);
   }
   return 0;
+}
+
+/** Empties the plugin's folder but for what setup kept of a repository's hooks file; whether it kept any. */
+function clearFolder(dir: string): boolean {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  const found = names.filter((name) => name.startsWith('hooks.json.found-'));
+  for (const name of names) if (!found.includes(name)) rmSync(join(dir, name), { recursive: true, force: true });
+  if (found.length === 0) rmSync(dir, { recursive: true, force: true });
+  return found.length > 0;
 }
 
 /** The key, typed at the terminal with nothing echoed; Ctrl-C leaves without a change. */

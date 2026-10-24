@@ -1,12 +1,8 @@
-/**
- * The built binary, run as Cursor runs a hook: a process handed the event on
- * stdin, which must answer and exit at once, while at a turn's end a detached
- * copy of it sends.
- */
+/** The built binary, run as Cursor runs a hook: a process handed the event on stdin that must answer and exit at once, while at a turn's end a detached copy sends. */
 
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { type AddressInfo, type Socket, connect, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +110,22 @@ function copies(): string[][] {
     });
 }
 
+/** What this test's detached copies running now were handed, in their environment. */
+function handoffs(): unknown[] {
+  if (!existsSync('/proc')) return [];
+  return readdirSync('/proc')
+    .filter((pid) => /^\d+$/.test(pid))
+    .flatMap((pid) => {
+      try {
+        const env = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
+        const handoff = env.find((entry) => entry.startsWith('TELMONI_CURSOR_HOOK_INPUT='));
+        return env.includes(`HOME=${home.path}`) && handoff !== undefined ? [JSON.parse(handoff.slice(handoff.indexOf('=') + 1)) as unknown] : [];
+      } catch {
+        return [];
+      }
+    });
+}
+
 /** Until every copy of this test has exited and none holds a lock. */
 async function copiesDone(): Promise<void> {
   const locked = (): boolean => existsSync(telmoni()) && readdirSync(telmoni()).some((name) => name.endsWith('.lock'));
@@ -205,12 +217,49 @@ describe('the hook', () => {
       });
       expect(code).toBe(0);
       expect(Buffer.concat(out).toString('utf8')).toBe('{}');
-      expect(readFileSync(join(telmoni(), 'hook.log'), 'utf8')).toMatch(/^\S+ stop: failed: Error\n$/);
+      expect(readFileSync(join(telmoni(), 'hook.log'), 'utf8')).toMatch(/^\S+ stop: failed: NoHookInput\n$/);
     } finally {
       input.destroy();
       for (const socket of held) socket.destroy();
       server.close();
     }
+  }, 15_000);
+
+  it.skipIf(process.platform === 'win32')('keeps nothing past a key file it passed over, though the key is in its environment', async () => {
+    mkdirSync(join(home.path, '.cursor'), { recursive: true });
+    const file = join(home.path, '.cursor', 'telmoni.json');
+    writeFileSync(file, JSON.stringify({ apiKey: KEY, endpoint: 'https://telmoni.example.com' }));
+    chmodSync(file, 0o644);
+    const payload = JSON.stringify(fixture('ide')[2]!.payload);
+    expect(await run(['hook', 'postToolUse'], payload, { env: { TELMONI_API_KEY: KEY } })).toMatchObject({ code: 0, stdout: '{}' });
+    expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
+  });
+
+  it('reads an event whole on a pipe Cursor never closes, rather than wait for an end that never comes', async () => {
+    const child = spawn(process.execPath, [CLI, 'hook', 'postToolUse'], {
+      stdio: ['pipe', 'pipe', 'ignore'],
+      env: { PATH: process.env['PATH'] ?? '', HOME: home.path, TELMONI_API_KEY: 'telmoni_test' },
+    });
+    const out: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    const started = Date.now();
+    // Written and never ended: a child's stdin is a blocking pipe, so only an event read whole lets the hook go.
+    child.stdin.write(JSON.stringify(fixture('ide')[2]!.payload));
+    const code = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(-1);
+      }, 9_000);
+      child.on('exit', (exited) => {
+        clearTimeout(timer);
+        resolve(exited);
+      });
+    });
+    child.stdin.destroy();
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(Buffer.concat(out).toString('utf8')).toBe('{}');
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8')).toContain('"tool_name":"Read"');
   }, 15_000);
 
   it('records a whole conversation: each turn sent by a detached copy as it ends, the spool emptied, nothing said kept', async () => {
@@ -250,6 +299,8 @@ describe('the hook', () => {
     await conversation(steps.slice(0, stop + 1), env);
     // The copy waits a second for the turn's last hooks: long enough to look at it.
     expect(copies()).toEqual([[process.execPath, CLI, 'hook', 'stop', '']]);
+    // With the time the stop's hook ran, which a session's end closes no later turn past.
+    expect(handoffs()).toEqual([{ event: 'stop', conversation_id: IDE, at: expect.any(Number) as unknown }]);
     expect(await until(() => runs() === 1, 20_000)).toBe(true);
   }, 30_000);
 
@@ -386,20 +437,60 @@ describe('the hook', () => {
     expect(await until(() => runs() === 1, 20_000)).toBe(true);
   }, 30_000);
 
-  it('stands aside where the workspace’s own hooks run the plugin, which then record alone', async () => {
+  /** A repository whose own hooks run the plugin, as `setup --project` writes them. */
+  function repository(): string {
     const project = join(home.path, 'repository');
     mkdirSync(join(project, '.cursor'), { recursive: true });
     writeFileSync(
       join(project, '.cursor', 'hooks.json'),
       JSON.stringify({ version: 1, hooks: { postToolUse: [{ command: 'telmoni-cursor-observability hook postToolUse --project' }] } }),
     );
-    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: project };
+    return project;
+  }
+
+  it.skipIf(process.platform === 'win32')('stands aside where the workspace’s own hooks run the plugin, which then record alone', async () => {
+    const project = repository();
+    // The bin those hooks run, on the PATH Cursor hands them.
+    const bin = join(home.path, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'telmoni-cursor-observability'), '#!/bin/sh\n', { mode: 0o755 });
+    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: project, PATH: bin };
     const payload = JSON.stringify(fixture('ide')[2]!.payload);
     expect((await run(['hook', 'postToolUse'], payload, { env })).stdout).toBe('{}');
     expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
     expect((await run(['hook', 'postToolUse', '--project'], payload, { env })).stdout).toBe('{}');
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
   });
+
+  it.skipIf(process.platform === 'win32')('stands aside where the bin is on a folder of the PATH named from the workspace', async () => {
+    const project = repository();
+    mkdirSync(join(project, 'tools'), { recursive: true });
+    writeFileSync(join(project, 'tools', 'telmoni-cursor-observability'), '#!/bin/sh\n', { mode: 0o755 });
+    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: project, PATH: 'tools' };
+    expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
+    expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
+  });
+
+  it('records where the workspace’s own hooks cannot start, the plugin being on no folder of the PATH they run with', async () => {
+    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: repository(), PATH: join(home.path, 'empty') };
+    expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
+  it('closes, as its session ends, no turn begun after that end, though a copy before it spent the end’s line', async () => {
+    const at = Date.UTC(2026, 9, 12, 9);
+    const lines = [
+      { id: 'p', at: at + 1000, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-3' },
+      { id: 't', at: at + 2000, hook_event_name: 'postToolUse', generation_id: 'g-3', tool_name: 'Read', duration: 5 },
+    ];
+    mkdirSync(telmoni(), { recursive: true, mode: 0o700 });
+    writeFileSync(join(telmoni(), `${IDE}.jsonl`), lines.map((line) => `${JSON.stringify(line)}\n`).join(''), { mode: 0o600 });
+    const handoff = JSON.stringify({ event: 'sessionEnd', conversation_id: IDE, at: at + 500 });
+    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint, TELMONI_CURSOR_HOOK_INPUT: handoff };
+    expect((await run(['hook', 'sessionEnd'], '', { env })).code).toBe(0);
+    expect(runs()).toBe(0);
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(2);
+  }, 30_000);
 
   it('records a workspace that is the home folder, whose hooks file is the person’s own', async () => {
     mkdirSync(join(home.path, '.cursor'), { recursive: true });

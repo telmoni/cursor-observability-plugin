@@ -1,21 +1,14 @@
 /**
- * A conversation's spool cut into turns, and which of them have ended.
- *
- * A turn is the work one prompt started: every line that carries the
- * generation id Cursor gives it. Cursor's headless CLI (`agent -p`) fires no
- * prompt, reply or `stop` hook and gives every event the conversation's own id
- * in its place, so there a turn is a session's work, from its `sessionStart`
- * to its `sessionEnd`. A session's start or end in the editor, which carries
- * no turn's id, is part of no run.
+ * A conversation's spool cut into turns, and which have ended: a turn is the work one prompt started, every line with
+ * its generation id; headless (`agent -p`) fires no prompt, reply or `stop`, so there a turn is a session's work, start to end.
  */
 
-import type { Line } from './input.js';
+import type { ClosingEvent, Line } from './input.js';
 
 export interface Turn {
   /**
-   * What names the run: Cursor's generation id or, for a headless session,
-   * the conversation's id and when the session began, since every session of
-   * a conversation resumed headless carries the same id.
+   * What names the run: Cursor's generation id or, for a headless session, the conversation's id and when the session
+   * began, since every session of a conversation resumed headless carries the same id.
    */
   id: string;
   /** In the order they happened. */
@@ -60,6 +53,16 @@ export function hasWork(turn: Turn): boolean {
   return turn.headless && lastOf(turn, 'sessionStart') !== undefined && sessionEndOf(turn) !== undefined;
 }
 
+/** How far a subagent's start may fall from its `Task`'s, as the record pairs the two. */
+const TASK_SLACK_MS = 2_000;
+
+/** A subagent's stop begun before the turn it came in, under no `Task` of the turn's begun with it: a background subagent's, of a turn before. */
+function lateStop(line: Line, span: { turn: Turn; start: number }): boolean {
+  const begun = line.at - (line.duration_ms ?? 0);
+  if (line.hook_event_name !== 'subagentStop' || begun >= span.start) return false;
+  return !span.turn.lines.some((each) => each.tool_name?.toLowerCase() === 'task' && each.at - (each.duration ?? 0) <= begun + TASK_SLACK_MS);
+}
+
 export function cut(lines: readonly Line[], conversationId: string): Cut {
   const sorted = [...lines].sort(byTime);
   const own = new Map<string, Line[]>();
@@ -75,10 +78,7 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
     else found.push(line);
   }
   const turns: Turn[] = [...own].map(([id, turnLines]) => ({ id, lines: turnLines, headless: false }));
-  // Each turn runs from its first line to the session's next start or end;
-  // sorted, so a line goes to the latest turn begun before it, its stop past
-  // or not: a subagent's stop, which Cursor gives the conversation's id, can
-  // come after the turn's own, where the person stopped the turn over it.
+  // Each turn runs from its first line to the session's next start or end, sorted so a line goes to the latest turn begun before it: a subagent's stop, under the conversation's id, can come after the turn's own.
   const bounds = sorted.filter(isSessionLine).map((line) => line.at);
   const spans = turns
     .map((turn) => {
@@ -97,7 +97,7 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
     if (!isSessionLine(line)) {
       // An event that came without its turn's id, inside a turn: that turn's.
       const span = spans.findLast((s) => s.start <= line.at && line.at <= s.end);
-      if (span !== undefined) {
+      if (span !== undefined && !lateStop(line, span)) {
         span.turn.lines.push(line);
         continue;
       }
@@ -107,13 +107,10 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
       continue;
     }
     const previous = session?.at(-1);
-    // A headless session never spans one of the editor's turns: a session's
-    // start before a conversation's turns, and its end after, are two lines of
-    // no run rather than one run around them.
+    // A headless session never spans one of the editor's turns: a start before them and an end after are two lines of no run, not one run around them.
     if (previous !== undefined && spans.some((s) => s.start > previous.at && s.start < line.at)) closeSession();
     if (line.hook_event_name === 'sessionStart') closeSession();
-    // A subagent's stop is part of the work around it: one that opens no
-    // session's work came after its turn was sent, and is no run of its own.
+    // A subagent's stop is part of the work around it: one that opens no session's work came after its turn was sent, and is no run of its own.
     if (session === undefined && line.hook_event_name === 'subagentStop') {
       loose.push(line);
       continue;
@@ -131,13 +128,10 @@ export function cut(lines: readonly Line[], conversationId: string): Cut {
 }
 
 /**
- * The turns that have ended, in the order they began. At `sessionEnd`, every
- * one begun before the session's end (`endedAt`), a turn begun after being a
- * session resumed; at `stop`, each turn Cursor stopped, each headless session
- * that ended, and each turn that went quiet before the last stopped one
- * began, whose own end never came.
+ * The turns that have ended, in the order they began: at `sessionEnd`, every one begun before `endedAt`, a later one
+ * being a session resumed; at `stop`, each turn Cursor stopped, each headless session that ended, and each turn quiet before the last stopped one began.
  */
-export function ended(turns: readonly Turn[], event: 'stop' | 'sessionEnd', endedAt?: number): Turn[] {
+export function ended(turns: readonly Turn[], event: ClosingEvent, endedAt?: number): Turn[] {
   if (event === 'sessionEnd') return turns.filter((turn) => endedAt === undefined || turn.lines[0]!.at <= endedAt);
   let latest = Number.NEGATIVE_INFINITY;
   for (const turn of turns) {

@@ -44,8 +44,10 @@ function through(steps: readonly Step[], from: number, count: number): void {
   replay(steps.slice(from, count), settings.dir, BASE, ids);
 }
 
-function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}, more: Partial<Deps> = {}): Promise<void> {
-  return sync({ event, conversationId }, { ...settings, ...overrides }, {
+function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}, more: Partial<Deps> = {}, at?: number): Promise<void> {
+  const input: HookInput = { event, conversationId };
+  if (at !== undefined) input.at = at;
+  return sync(input, { ...settings, ...overrides }, {
     sender: () => ({
       send: (record) => {
         attempts++;
@@ -108,7 +110,7 @@ describe('a copy', () => {
     const [first] = stops(steps);
     through(steps, 0, first!);
     // The state cannot be written: the copy fails once the turn is sent.
-    const state = join(settings.dir, `${IDE}.json.tmp`);
+    const state = join(settings.dir, `${IDE}.json.${process.pid}.tmp`);
     mkdirSync(state, { recursive: true });
     await expect(hook('stop', IDE)).rejects.toThrow();
     rmSync(state, { recursive: true });
@@ -189,6 +191,61 @@ describe('a copy', () => {
     expect(existsSync(join(settings.dir, `${IDE}.jsonl`))).toBe(false);
   });
 
+  it('takes no background subagent’s late stop into the turn after the one it began in, which was sent', async () => {
+    append(settings.dir, IDE, { id: 'a', at: BASE, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-1' });
+    append(settings.dir, IDE, { id: 'b', at: BASE + 1000, hook_event_name: 'postToolUse', generation_id: 'g-1', tool_name: 'Task', duration: 5 });
+    append(settings.dir, IDE, { id: 'c', at: BASE + 2000, hook_event_name: 'stop', generation_id: 'g-1', status: 'completed' });
+    await hook('stop', IDE);
+    append(settings.dir, IDE, { id: 'd', at: BASE + 60_000, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-2' });
+    // Begun in the first turn, it stops during the second, under the conversation's id.
+    append(settings.dir, IDE, { id: 'e', at: BASE + 65_000, hook_event_name: 'subagentStop', generation_id: IDE, subagent_type: 'explore', status: 'completed', duration_ms: 64_000 });
+    append(settings.dir, IDE, { id: 'f', at: BASE + 70_000, hook_event_name: 'stop', generation_id: 'g-2', status: 'completed' });
+    await hook('stop', IDE);
+    expect(sent).toHaveLength(2);
+    expect(Number(sent[1]!.start)).toBe(BASE + 60_000);
+    expect((sent[1]!.inside ?? []).some((item) => item.type === 'step')).toBe(false);
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('takes no background subagent’s late stop into a later turn, though that turn ran a subagent of its own', async () => {
+    append(settings.dir, IDE, { id: 'a', at: BASE, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-1' });
+    append(settings.dir, IDE, { id: 'b', at: BASE + 1000, hook_event_name: 'postToolUse', generation_id: 'g-1', tool_name: 'Task', duration: 5 });
+    append(settings.dir, IDE, { id: 'c', at: BASE + 2000, hook_event_name: 'stop', generation_id: 'g-1', status: 'completed' });
+    await hook('stop', IDE);
+    append(settings.dir, IDE, { id: 'd', at: BASE + 60_000, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-2' });
+    // The first turn's background subagent, begun at a second, stops amid the second turn's own subagent.
+    append(settings.dir, IDE, { id: 'e', at: BASE + 65_000, hook_event_name: 'subagentStop', generation_id: IDE, subagent_type: 'explore', status: 'completed', duration_ms: 64_000 });
+    append(settings.dir, IDE, { id: 'f', at: BASE + 69_990, hook_event_name: 'subagentStop', generation_id: IDE, subagent_type: 'explore', status: 'completed', duration_ms: 7_900 });
+    append(settings.dir, IDE, { id: 'g', at: BASE + 70_000, hook_event_name: 'postToolUse', generation_id: 'g-2', tool_name: 'Task', duration: 8_000 });
+    append(settings.dir, IDE, { id: 'h', at: BASE + 72_000, hook_event_name: 'stop', generation_id: 'g-2', status: 'completed' });
+    await hook('stop', IDE);
+    expect(sent).toHaveLength(2);
+    expect(Number(sent[1]!.start)).toBe(BASE + 60_000);
+    const steps = (sent[1]!.inside ?? []).filter((item) => item.type === 'step');
+    expect(steps.map((step) => [Number(step.start), Number(step.end)])).toEqual([[BASE + 62_000, BASE + 70_000]]);
+  });
+
+  it('at the session’s end, closes every turn begun before its latest end, though the copy’s own came earlier', async () => {
+    append(settings.dir, IDE, { id: 'p', at: BASE + 1000, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-4' });
+    append(settings.dir, IDE, { id: 't', at: BASE + 2000, hook_event_name: 'postToolUse', generation_id: 'g-4', tool_name: 'Read', duration: 5 });
+    append(settings.dir, IDE, { id: 'e', at: BASE + 3000, hook_event_name: 'sessionEnd', reason: 'user_close' });
+    await hook('sessionEnd', IDE, {}, {}, BASE + 500);
+    expect(sent.map((run) => [run.runId, run.cancelled])).toEqual([[runIdOf(IDE, 'g-4'), true]]);
+  });
+
+  it('at the session’s end, closes no turn begun after it, though a copy before spent the end’s line', async () => {
+    append(settings.dir, IDE, { id: 'p', at: BASE + 1000, hook_event_name: 'beforeSubmitPrompt', generation_id: 'g-3' });
+    append(settings.dir, IDE, { id: 't', at: BASE + 2000, hook_event_name: 'postToolUse', generation_id: 'g-3', tool_name: 'Read', duration: 5 });
+    await hook('sessionEnd', IDE, {}, {}, BASE + 500);
+    expect(sent).toEqual([]);
+    append(settings.dir, IDE, { id: 'u', at: BASE + 3000, hook_event_name: 'postToolUse', generation_id: 'g-3', tool_name: 'Shell', duration: 5 });
+    append(settings.dir, IDE, { id: 's', at: BASE + 4000, hook_event_name: 'stop', generation_id: 'g-3', status: 'completed' });
+    await hook('stop', IDE);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.cancelled).toBeUndefined();
+    expect((sent[0]!.inside ?? []).filter((item) => item.type === 'tool_call')).toHaveLength(2);
+  });
+
   it('catches up a spool of many turns at once, each sent once and in order', async () => {
     // As Telmoni down for a day leaves it: hundreds of turns not yet sent.
     const turns = 400;
@@ -223,7 +280,7 @@ describe('a copy', () => {
     expect(readSpool(settings.dir, IDE)).toEqual([]);
   });
 
-  it('sends though the state was cut short, as a full disk leaves it', async () => {
+  it('sends though the state cannot be read, saying so and writing it whole again', async () => {
     const steps = fixture('ide');
     const [first] = stops(steps);
     through(steps, 0, first!);
@@ -231,6 +288,73 @@ describe('a copy', () => {
     await hook('stop', IDE);
     expect(sent.map((run) => run.runId)).toEqual([runIdOf(IDE, 'a1b2c3d4-0001-4a00-8000-000000000001')]);
     expect(readState(settings.dir, IDE).sent).toEqual(['a1b2c3d4-0001-4a00-8000-000000000001']);
+    expect(logged).toEqual(['state not read (SyntaxError); read as none']);
+  });
+
+  it('sends none of a catch-up again after a copy that died midway', async () => {
+    const turns = 200;
+    for (let n = 0; n < turns; n++) {
+      const generation_id = `g-${String(n).padStart(4, '0')}`;
+      const at = BASE + n * 10_000;
+      append(settings.dir, IDE, { id: `p-${n}`, at, hook_event_name: 'beforeSubmitPrompt', generation_id });
+      append(settings.dir, IDE, { id: `t-${n}`, at: at + 100, hook_event_name: 'postToolUse', generation_id, tool_name: 'Read', duration: 50 });
+      append(settings.dir, IDE, { id: `s-${n}`, at: at + 5000, hook_event_name: 'stop', generation_id, status: 'completed' });
+    }
+    let sends = 0;
+    // Killed at its 151st send, between two turns: what it sent and saved stands.
+    const dying: Partial<Deps> = {
+      sender: () => ({
+        send: (record) => {
+          if (++sends > 150) return Promise.reject(Object.assign(new Error('killed'), { name: 'Killed' }));
+          sent.push(record);
+          return Promise.resolve(true);
+        },
+        close: () => Promise.resolve(),
+      }),
+    };
+    await expect(hook('stop', IDE, {}, dying)).rejects.toThrow('killed');
+    expect(sent).toHaveLength(150);
+    await hook('stop', IDE);
+    const runIds = sent.map((run) => run.runId);
+    expect(runIds).toEqual(Array.from({ length: turns }, (_, n) => runIdOf(IDE, `g-${String(n).padStart(4, '0')}`)));
+  }, 60_000);
+
+  it('sends none of a catch-up twice after copies that died midway, one after another', async () => {
+    const turns = 200;
+    for (let n = 0; n < turns; n++) {
+      const generation_id = `g-${String(n).padStart(4, '0')}`;
+      append(settings.dir, IDE, { id: `p-${n}`, at: BASE + n * 10_000, hook_event_name: 'beforeSubmitPrompt', generation_id });
+      append(settings.dir, IDE, { id: `s-${n}`, at: BASE + n * 10_000 + 5000, hook_event_name: 'stop', generation_id, status: 'completed' });
+    }
+    // Each killed before its first compaction, as a machine put to sleep might.
+    const dying = (limit: number): Partial<Deps> => {
+      let sends = 0;
+      return {
+        sender: () => ({
+          send: (record) => {
+            if (++sends > limit) return Promise.reject(Object.assign(new Error('killed'), { name: 'Killed' }));
+            sent.push(record);
+            return Promise.resolve(true);
+          },
+          close: () => Promise.resolve(),
+        }),
+      };
+    };
+    for (const limit of [31, 31, 20]) await expect(hook('stop', IDE, {}, dying(limit))).rejects.toThrow('killed');
+    await hook('stop', IDE);
+    const runIds = sent.map((run) => run.runId);
+    expect(runIds).toHaveLength(turns);
+    expect(new Set(runIds).size).toBe(turns);
+  }, 60_000);
+
+  it('sends nothing past a key file it passed over, though the key is in its environment, and says why once', async () => {
+    const steps = fixture('ide');
+    through(steps, 0, stops(steps)[0]!);
+    // The file may have named a self-hosted endpoint: the key must not go to the default instead.
+    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
+    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
+    expect(sent).toEqual([]);
+    expect(logged).toEqual(['~/.cursor/telmoni.json not used (open to other users; chmod 600 it): fix it, or move it aside and run telmoni-cursor-observability setup, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then']);
   });
 
   it('closes a headless session’s turn at its end, with no stop', async () => {
@@ -251,6 +375,13 @@ describe('a copy', () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]!.cancelled).toBe(true);
     expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('says once each why nothing is sent: no key, then a key file passed over', async () => {
+    await hook('stop', IDE, { apiKey: undefined });
+    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
+    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
+    expect(logged).toEqual([expect.stringMatching(/^no key/) as unknown, expect.stringMatching(/^~\/\.cursor\/telmoni\.json not used \(open to other users/) as unknown]);
   });
 
   it('sends nothing without a key, and says so once', async () => {
@@ -274,7 +405,7 @@ describe('a copy', () => {
       await ingest.stop();
     }
     // The first two turns ran the shell, and the third did not.
-    const partly = 'sent, though ingest kept less than all of it: telmoni: the server refused a span: not kept';
+    const partly = 'taken in part: telmoni: the server refused a span: not kept';
     expect(logged).toEqual([partly, partly]);
     expect(readSpool(settings.dir, IDE)).toEqual([]);
   });
@@ -308,25 +439,37 @@ describe('the spool', () => {
     append(settings.dir, 'c-1', lineAt('b'));
     const compacting = compact(settings.dir, 'c-1', new Set(['a']));
     // The hook that had the spool open as it moved aside, and one after.
-    writeFileSync(join(settings.dir, 'c-1.jsonl.aside'), `${JSON.stringify(lineAt('c'))}\n`, { flag: 'a' });
+    writeFileSync(join(settings.dir, `c-1.jsonl.aside.${process.pid}`), `${JSON.stringify(lineAt('c'))}\n`, { flag: 'a' });
     append(settings.dir, 'c-1', lineAt('d'));
     await compacting;
     expect(readSpool(settings.dir, 'c-1').map((line) => line.id).sort()).toEqual(['b', 'c', 'd']);
   });
 
-  it('puts back what a copy that died while compacting had moved aside', () => {
+  it('puts back what each copy that died while compacting had moved aside, under its own name or a version’s before', () => {
     append(settings.dir, 'c-1', lineAt('a'));
     writeFileSync(join(settings.dir, 'c-1.jsonl.aside'), `${JSON.stringify(lineAt('a'))}\n${JSON.stringify(lineAt('b'))}\n`);
+    writeFileSync(join(settings.dir, 'c-1.jsonl.aside.4242'), `${JSON.stringify(lineAt('c'))}\n`);
+    writeFileSync(join(settings.dir, 'c-10.jsonl.aside.4242'), `${JSON.stringify(lineAt('d'))}\n`);
     recover(settings.dir, 'c-1');
-    expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['a', 'b']);
-    expect(existsSync(join(settings.dir, 'c-1.jsonl.aside'))).toBe(false);
+    expect(readSpool(settings.dir, 'c-1').map((line) => line.id).sort()).toEqual(['a', 'b', 'c']);
+    expect(readdirSync(settings.dir).sort()).toEqual(['c-1.jsonl', 'c-10.jsonl.aside.4242']);
+  });
+
+  it('moves a spool aside under a name of the copy’s own, never over another copy’s', async () => {
+    append(settings.dir, 'c-1', lineAt('a'));
+    append(settings.dir, 'c-1', lineAt('b'));
+    // Another copy's, as one that took a stale lock in the same instant would leave it mid-compaction.
+    writeFileSync(join(settings.dir, 'c-1.jsonl.aside.4242'), `${JSON.stringify(lineAt('c'))}\n`);
+    await compact(settings.dir, 'c-1', new Set(['a']));
+    expect(readFileSync(join(settings.dir, 'c-1.jsonl.aside.4242'), 'utf8')).toBe(`${JSON.stringify(lineAt('c'))}\n`);
+    expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['b']);
   });
 
   it('is deleted, with the conversation’s state, once untouched for a week, and the log and what setup keeps are not', () => {
     append(settings.dir, 'old', lineAt('a'));
     append(settings.dir, 'new', lineAt('b'));
     const kept = ['hook.log', 'hook.log.1', 'hooks.json.found-0123456789abcdef'];
-    for (const name of ['old.json', 'old.lock', 'old.jsonl.aside', 'old.json.tmp', ...kept]) {
+    for (const name of ['old.json', 'old.lock', 'old.jsonl.aside', 'old.jsonl.aside.4242', 'old.json.tmp', 'old.json.4242.tmp', ...kept]) {
       writeFileSync(join(settings.dir, name), '');
     }
     const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
@@ -368,7 +511,7 @@ describe('a spool that cannot be read', () => {
     await expect(compact(settings.dir, 'c-1', new Set(['b']))).rejects.toThrow();
     expect(() => recover(settings.dir, 'c-1')).toThrow();
     // Readable again, what was set aside is put back whole.
-    chmodSync(`${spool}.aside`, 0o600);
+    chmodSync(`${spool}.aside.${process.pid}`, 0o600);
     recover(settings.dir, 'c-1');
     expect(readSpool(settings.dir, 'c-1').map((line) => line.id)).toEqual(['a']);
   });

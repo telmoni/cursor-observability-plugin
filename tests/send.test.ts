@@ -94,10 +94,51 @@ describe('a sender', () => {
     expect(ingest.stored.filter((span) => span.name === 'execute_tool Read')).toHaveLength(3000);
   }, 30_000);
 
+  it('passes over a turn refused for good, which the same bytes would get again, and keeps one refused for its key', async () => {
+    for (const status of [400, 402, 413, 500, 401]) {
+      ingest.status = status;
+      const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+      try {
+        expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(status !== 401);
+      } finally {
+        await sender.close();
+      }
+    }
+    expect(logged.map((line) => line.slice(0, line.indexOf(' /')))).toEqual([
+      ...[400, 402, 413, 500].map((status) => `refused, not sent again: telmoni: export refused with ${status}`),
+      'not sent: telmoni: export refused with 401',
+    ]);
+  });
+
+  it('keeps a turn ingest refused for a fault of its database, which a later copy may find mended', async () => {
+    ingest.status = 500;
+    ingest.type = '/errors/internal/database';
+    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    try {
+      expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(false);
+    } finally {
+      await sender.close();
+    }
+    expect(logged).toEqual(['not sent: telmoni: export refused with 500 /errors/internal/database; the batch was dropped']);
+  });
+
+  it('counts a turn the SDK sent less a field it could not take as sent, rather than send it again at every hook', async () => {
+    const call = { type: 'model_call' as const, model: 'claude-opus-4-7', provider: 'cursor', start: at(0), end: at(9), usage: { inputTokens: -1 } };
+    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    try {
+      expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: [call] })).toBe(true);
+    } finally {
+      await sender.close();
+    }
+    expect(ingest.received).toHaveLength(1);
+    expect(logged).toEqual(['taken in part: telmoni: gen_ai.usage.input_tokens must be a whole number from 0 within 64 bits; the call is sent without it']);
+  });
+
   it('counts a turn ingest stored as sent, though it refused a span of it, rather than send it again at every hook', async () => {
+    ingest.refusal = (span) => (attributesOf(span)['gen_ai.tool.name'] === 'MCP:refused' ? 'name over its cap' : undefined);
     const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
     const record = turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d');
-    const refused = { type: 'tool_call' as const, name: `MCP:${'x'.repeat(140)}`, start: at(1), end: at(2) };
+    const refused = { type: 'tool_call' as const, name: 'MCP:refused', start: at(1), end: at(2) };
     try {
       expect(await sender.send({ ...record, inside: [...record.inside!, refused] })).toBe(true);
       expect(await sender.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'))).toBe(true);
@@ -105,7 +146,7 @@ describe('a sender', () => {
       await sender.close();
     }
     expect(ingest.received).toHaveLength(2);
-    expect(logged).toEqual(['sent, though ingest kept less than all of it: telmoni: the server refused a span: name over its cap']);
+    expect(logged).toEqual(['taken in part: telmoni: the server refused a span: name over its cap']);
   });
 
   it('sends a turn sent again as the same bytes, which ingest stores once', async () => {

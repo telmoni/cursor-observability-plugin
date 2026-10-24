@@ -2,7 +2,7 @@ import { Telmoni } from 'telmoni';
 import type { ModelCallRecord, RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { Line } from '../src/input';
+import { EVENTS, type Line } from '../src/input';
 import { AGENT, PROVIDER, type Context, recordOf, runIdOf, uuid5 } from '../src/record';
 import { readSpool } from '../src/spool';
 import { type Turn, cut, ended } from '../src/turns';
@@ -202,15 +202,26 @@ describe('a turn that never said how it ended', () => {
   });
 
   it('cuts a name past what ingest takes for a span’s name, rather than lose the call', () => {
-    const tool = `MCP:${'a'.repeat(156)}`;
-    const model = `custom-${'m'.repeat(121)}`;
+    const tool = `MCP:${'a'.repeat(140)}😀😀${'a'.repeat(20)}`;
+    const model = `custom-${'m'.repeat(120)}😀😀${'m'.repeat(20)}`;
     const run = recordOf(
       turn([line('beforeSubmitPrompt', 0, { model }), line('postToolUse', 900, { model, tool_name: tool, duration: 100 })]),
       { conversationId: 'c-1', sessionEnd: undefined },
     )!;
-    // A tool call's span is named by its tool, a model call's `chat <model>`: 128 characters at most.
-    expect(tools(run).map((call) => call.name)).toEqual([tool.slice(0, 128)]);
-    expect(models(run).map((call) => `chat ${call.model}`)).toEqual([`chat ${model.slice(0, 123)}`]);
+    // Ingest takes a tool's name to 145 characters and a model's to 128, counted by character: an emoji straddles each cap.
+    expect(tools(run).map((call) => call.name)).toEqual([[...tool].slice(0, 145).join('')]);
+    expect(models(run).map((call) => call.model)).toEqual([[...model].slice(0, 128).join('')]);
+  });
+
+  it('sends a custom model’s name as Cursor gives it, a model file’s own name for its path, and never a path', () => {
+    const sent = (model: string): string =>
+      models(recordOf(turn([line('beforeSubmitPrompt', 0, { model }), line('stop', 900, { model, status: 'completed' })]), { conversationId: 'c-1', sessionEnd: undefined })!)[0]!.model;
+    for (const model of ['composer-2.5', 'claude-4.5-sonnet-thinking', 'qwen/qwen3-coder', 'qwen3-coder-30b.gguf']) expect(sent(model)).toBe(model);
+    expect(sent('/home/someone/models/qwen3-coder-30b-q4_k_m.gguf')).toBe('qwen3-coder-30b-q4_k_m.gguf');
+    expect(sent('models/x.gguf')).toBe('x.gguf');
+    expect(sent('C:\\Users\\someone\\models\\x.safetensors')).toBe('x.safetensors');
+    expect(sent(' /home/someone/models/x.gguf ')).toBe('x.gguf');
+    for (const path of ['/home/someone/models/qwen', ' /home/someone', '~/models/x', './x', 'D:/models/x', 'file:///home/someone/m']) expect(sent(path)).toBe('unknown');
   });
 });
 
@@ -254,7 +265,6 @@ describe('every record', () => {
     let seed = 20261012;
     const random = (): number => (seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31;
     const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
-    const events = ['sessionStart', 'beforeSubmitPrompt', 'postToolUse', 'postToolUseFailure', 'subagentStop', 'afterAgentResponse', 'stop', 'sessionEnd'] as const;
     const telmoni = new Telmoni(
       { apiKey: 'telmoni_test', endpoint: 'http://127.0.0.1:9' },
       {
@@ -272,7 +282,7 @@ describe('every record', () => {
             id: `l-${n}-${index}`,
             // A clock that runs back and jumps: hooks' times in any order.
             at: BASE + Math.floor(random() * 120_000) - 60_000,
-            hook_event_name: pick(events),
+            hook_event_name: pick(EVENTS),
             model: 'composer-2.5',
           };
           const generation = pick(['g-1', 'g-2', 'g-3', 'c-1', undefined]);

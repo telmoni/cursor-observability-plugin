@@ -1,22 +1,25 @@
 /**
- * The detached copy's work on one conversation: the turns that have ended,
- * each sent as a run and marked sent, then their lines taken out of the
- * spool, so a turn is sent once and none is skipped.
+ * The detached copy's work on one conversation: the turns that have ended, each sent as a run and marked sent, then
+ * their lines taken out of the spool, so a turn is sent once and none is skipped.
  */
 
 import type { RunRecord } from 'telmoni';
 
+import type { ClosingEvent } from './input.js';
+import { kindOf } from './log.js';
 import { recordOf } from './record.js';
 import type { Destination } from './send.js';
 import type { Settings } from './settings.js';
 import { compact, readSpool, recover } from './spool.js';
-import { readState, withLock, writeState } from './state.js';
+import { type ConversationState, SENT_KEPT, readState, withLock, writeState } from './state.js';
 import { type Turn, byTime, cut, ended, hasWork } from './turns.js';
 
 export interface HookInput {
   /** What closed the turns: Cursor's `stop`, or the session's end. */
-  event: 'stop' | 'sessionEnd';
+  event: ClosingEvent;
   conversationId: string;
+  /** When the closing event happened, as its hook kept it. */
+  at?: number;
 }
 
 export interface Deps {
@@ -55,13 +58,26 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
   // No hook need follow the session's end: its copy outwaits a live holder, whose time only its sends bound.
   const waitMs = input.event === 'sessionEnd' ? Number.POSITIVE_INFINITY : (deps.lockWaitMs ?? LOCK_WAIT_MS);
   const locked = await withLock(settings.dir, input.conversationId, waitMs, async () => {
-    const state = readState(settings.dir, input.conversationId);
-    const once = (flag: 'warnedNoKey' | 'warnedEndpoint', line: string): void => {
+    let state: ConversationState;
+    try {
+      state = readState(settings.dir, input.conversationId);
+    } catch (error) {
+      // The spool, not the state, holds what is still to send: one unread is read as none, and written whole again.
+      deps.log(`state not read (${kindOf(error)}); read as none`);
+      state = { sent: [] };
+      writeState(settings.dir, input.conversationId, state);
+    }
+    const once = (flag: 'warnedNoKey' | 'warnedKeyFile' | 'warnedEndpoint', line: string): void => {
       if (state[flag] === true) return;
       deps.log(line);
       state[flag] = true;
       writeState(settings.dir, input.conversationId, state);
     };
+    // The file passed over may have named the endpoint: the key never goes to the default in its place.
+    if (settings.keyFileProblem !== undefined) {
+      once('warnedKeyFile', `~/.cursor/telmoni.json not used (${settings.keyFileProblem}): fix it, or move it aside and run telmoni-cursor-observability setup, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then`);
+      return;
+    }
     if (apiKey === undefined) {
       once('warnedNoKey', 'no key: run telmoni-cursor-observability setup, or set TELMONI_API_KEY; nothing is sent until then');
       return;
@@ -77,9 +93,11 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
     const sent = new Set(state.sent);
     const { turns, loose } = cut(lines, input.conversationId);
     const sessionEnds = lines.filter((line) => line.hook_event_name === 'sessionEnd').sort(byTime);
-    const closing = new Set(ended(turns, input.event, sessionEnds.at(-1)?.at));
-    // Lines of no run are spent at any close; so are a sent turn's, whose late
-    // line would otherwise go out as a second run under the same id.
+    // The latest end known: its line, or this copy's own event where a copy before it spent the line.
+    const lastEnd = sessionEnds.at(-1)?.at;
+    const endedAt = input.at === undefined || (lastEnd !== undefined && lastEnd > input.at) ? lastEnd : input.at;
+    const closing = new Set(ended(turns, input.event, endedAt));
+    // Lines of no run are spent at any close; so are a sent turn's, whose late line would otherwise go out as a second run under the same id.
     const spent = new Set(loose.map((line) => line.id));
     const due: Turn[] = [];
     for (const turn of turns) {
@@ -89,7 +107,13 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
         due.push(turn);
       }
     }
+    // Out before more is sent: a copy that died mid catch-up left turns it sent, which `sent`, keeping 64, may forget.
+    if (due.length > 0 && turns.some((turn) => sent.has(turn.id))) {
+      await compact(settings.dir, input.conversationId, spent);
+      spent.clear();
+    }
     const destination: Destination = { endpoint: settings.endpoint, apiKey };
+    let since = 0;
     for (const turn of due) {
       // The first session's end after the turn's last line, which cut it short.
       const last = turn.lines.at(-1)!.at;
@@ -99,6 +123,12 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
       state.sent.push(turn.id);
       writeState(settings.dir, input.conversationId, state);
       for (const line of turn.lines) spent.add(line.id);
+      // Out of the spool before `sent` forgets them: a copy that dies mid catch-up sends none of them again.
+      if (++since >= SENT_KEPT / 2) {
+        await compact(settings.dir, input.conversationId, spent);
+        spent.clear();
+        since = 0;
+      }
     }
     await compact(settings.dir, input.conversationId, spent);
   });

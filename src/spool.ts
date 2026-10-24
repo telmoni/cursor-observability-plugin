@@ -1,17 +1,10 @@
 /**
- * A conversation's spool, `<conversation_id>.jsonl` in the plugin's folder: a
- * line per event of the turns not yet sent, appended by each hook as Cursor
- * runs it, read by the detached copy once a turn has ended, and compacted
- * once the copy has sent it.
- *
- * Hooks append without a lock, so Cursor never waits on one; the copy, which
- * holds the conversation's lock, compacts by moving the spool aside and
- * appending back what it keeps, so a hook appending meanwhile loses nothing.
+ * A conversation's spool, `<conversation_id>.jsonl` in the plugin's folder: a line per event of the turns not yet sent,
+ * appended by each hook without a lock, so Cursor never waits on one, and compacted by the copy by moving it aside and appending back what it keeps.
  */
 
 import {
   appendFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -30,14 +23,15 @@ const GRACE_MS = 100;
 const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** A conversation's files, named by its id: its spool, its state, its lock, and each written aside. */
-const CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside)?|json(?:\.tmp)?|lock)$/;
+const CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside(?:\.\d+)?)?|json(?:\.(?:\d+\.)?tmp)?|lock)$/;
 
 function spoolOf(dir: string, conversationId: string): string {
   return join(dir, `${conversationId}.jsonl`);
 }
 
+/** Its own, so two copies that took a stale lock in the same instant never move a spool over each other's aside. */
 function asideOf(dir: string, conversationId: string): string {
-  return `${spoolOf(dir, conversationId)}.aside`;
+  return `${spoolOf(dir, conversationId)}.aside.${process.pid}`;
 }
 
 /** One line, in one write, which another hook's line cannot split. */
@@ -53,8 +47,7 @@ function parsed(piece: string): unknown {
   try {
     return JSON.parse(piece);
   } catch {
-    // Torn by a write cut short — a full disk — with the next line appended
-    // onto it: that next line is read from where it begins, the torn one not at all.
+    // Torn by a write cut short — a full disk — with the next line appended onto it: that next line is read from where it begins, the torn one not at all.
     const start = piece.lastIndexOf(LINE_START);
     if (start <= 0) return undefined;
     try {
@@ -108,15 +101,24 @@ export function readSpool(dir: string, conversationId: string): Line[] {
  * had already put back is read twice and counted once.
  */
 export function recover(dir: string, conversationId: string): void {
-  const aside = asideOf(dir, conversationId);
-  if (!existsSync(aside)) return;
-  const lines = linesIn(aside);
-  if (lines.length > 0) {
-    appendFileSync(spoolOf(dir, conversationId), lines.map((line) => `${JSON.stringify(line)}\n`).join(''), {
-      mode: 0o600,
-    });
+  const prefix = `${conversationId}.jsonl.aside`;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
   }
-  rmSync(aside, { force: true });
+  // Each copy's, and the one name a copy before this version used.
+  for (const name of names.filter((each) => each === prefix || each.startsWith(`${prefix}.`))) {
+    const aside = join(dir, name);
+    const lines = linesIn(aside);
+    if (lines.length > 0) {
+      appendFileSync(spoolOf(dir, conversationId), lines.map((line) => `${JSON.stringify(line)}\n`).join(''), {
+        mode: 0o600,
+      });
+    }
+    rmSync(aside, { force: true });
+  }
 }
 
 /** Takes the lines in `drop` out of the spool; the caller holds the conversation's lock. */
@@ -130,8 +132,7 @@ export async function compact(dir: string, conversationId: string, drop: Readonl
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
-  // A hook that opened the spool just before it moved writes its line into
-  // the file now aside: it is read below with the rest.
+  // A hook that opened the spool just before it moved writes its line into the file now aside: it is read below with the rest.
   await new Promise((resolve) => setTimeout(resolve, GRACE_MS));
   const kept = linesIn(aside).filter((line) => !drop.has(line.id));
   if (kept.length > 0) {
@@ -141,9 +142,8 @@ export async function compact(dir: string, conversationId: string, drop: Readonl
 }
 
 /**
- * Deletes what conversations untouched for a week left behind: a turn whose
- * hooks never ended it, or one Telmoni never took, would otherwise stay for
- * good. The log and what setup keeps are no conversation's.
+ * Deletes what conversations untouched for a week left behind: a turn whose hooks never ended it, or one Telmoni never
+ * took, would otherwise stay for good. The log and what setup keeps are no conversation's.
  */
 export function sweep(dir: string, now: number): void {
   let names: string[];

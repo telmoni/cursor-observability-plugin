@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * `telmoni-cursor-observability`: `setup` writes the plugin's hooks into Cursor's
- * `hooks.json` and the key beside it, `remove` takes them out again, and
- * `hook <event>` is what Cursor runs at each event.
+ * `telmoni-cursor-observability`: `setup` writes the plugin's hooks into Cursor's `hooks.json` and the key beside it,
+ * `remove` takes them out again, and `hook <event>` is what Cursor runs at each event.
  */
 
 import { homedir } from 'node:os';

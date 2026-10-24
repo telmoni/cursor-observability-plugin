@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -130,6 +130,19 @@ describe('setup', () => {
     expect(await setup(options())).toBe(1);
     expect(existsSync(keyFile())).toBe(false);
     expect(printed.join('\n')).not.toContain(KEY);
+  });
+
+  it.skipIf(process.platform === 'win32')('changes nothing where the key file is one the hooks would not read, so an endpoint in it is never lost', async () => {
+    writeOthers();
+    const before = readFileSync(hooksFile(), 'utf8');
+    const held = JSON.stringify({ apiKey: KEY, endpoint: 'https://telmoni.example.com' });
+    writeFileSync(keyFile(), held);
+    chmodSync(keyFile(), 0o644);
+    expect(await setup(options())).toBe(1);
+    expect(printed).toEqual(['~/.cursor/telmoni.json not used (open to other users; chmod 600 it): fix it or move it aside, then run setup again. Nothing was changed.']);
+    expect(readFileSync(hooksFile(), 'utf8')).toBe(before);
+    expect(readFileSync(keyFile(), 'utf8')).toBe(held);
+    expect(statSync(keyFile()).mode & 0o777).toBe(0o644);
   });
 
   it('takes plain HTTP to this machine alone: a Telmoni of one’s own', async () => {
@@ -273,6 +286,21 @@ describe('remove', () => {
     writeFileSync(file, FOUND[0]!);
     const project = options({ project: true, cwd: repository, env: {} });
     expect(await setup(project)).toBe(0);
+    expect(remove(project)).toBe(0);
+    expect(readFileSync(file, 'utf8')).toBe(FOUND[0]);
+  });
+
+  it('keeps what setup found of a repository’s hooks.json through the user’s own remove, for the repository’s', async () => {
+    const repository = join(home.path, 'repository');
+    mkdirSync(join(repository, '.git'), { recursive: true });
+    mkdirSync(join(repository, '.cursor'));
+    const file = join(repository, '.cursor', 'hooks.json');
+    writeFileSync(file, FOUND[0]!);
+    const project = options({ project: true, cwd: repository, env: {} });
+    expect(await setup(project)).toBe(0);
+    expect(await setup(options())).toBe(0);
+    expect(remove(options())).toBe(0);
+    expect(existsSync(keyFile())).toBe(false);
     expect(remove(project)).toBe(0);
     expect(readFileSync(file, 'utf8')).toBe(FOUND[0]);
   });

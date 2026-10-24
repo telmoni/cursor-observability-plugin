@@ -32,10 +32,7 @@ export function tempDir(): { path: string; remove: () => void } {
   return { path, remove: () => rmSync(path, { recursive: true, force: true }) };
 }
 
-/**
- * The steps as the hook keeps them, appended to their conversation's spool in
- * `dir` as each would have been at its time; the lines kept, in order.
- */
+/** The steps as the hook keeps them, appended to their conversation's spool in `dir` as each would have been at its time. */
 export function replay(steps: readonly Step[], dir: string, base = BASE, ids = { next: 0 }): Line[] {
   const kept: Line[] = [];
   for (const step of steps) {
@@ -65,29 +62,25 @@ export interface Received {
   body: string;
 }
 
-/** As ingest caps a span's name: a tool call's name, or any other span's own (`crates/telemetry/src/contract.rs`). */
-const NAME_MAX = 128;
+/** As ingest caps a span's name, in characters: a tool call's name, or any other span's own (`crates/telemetry/src/contract.rs`). */
+const NAME_MAX = 145;
 
 function nameOf(span: JsonSpan): string {
   const attributes = attributesOf(span);
   return attributes['gen_ai.operation.name'] === 'execute_tool' ? String(attributes['gen_ai.tool.name']) : span.name;
 }
 
-/**
- * Ingest as the SDK meets it: an OTLP/JSON lane that answers `status`, and
- * at `200` stores what it is sent, as ingest does, but a span whose name is
- * past its cap, which it refuses in a partial success; a body sent again is
- * answered as the first was and stored once, as ingest's claim on a body
- * answers a copy within the hour.
- */
+/** Ingest as the SDK meets it: an OTLP/JSON lane that answers `status`, stores a `200` body once as ingest's claim does, and refuses a span whose name is past its cap in a partial success. */
 export class FakeIngest {
   /** Every request, as sent. */
   readonly received: Received[] = [];
   /** Every span stored. */
   readonly stored: JsonSpan[] = [];
   status = 200;
+  /** A refusal's problem type, where set, its whole message as ingest words one with no detail. */
+  type: string | undefined;
   /** Why it refuses a span, where it does: by default, as ingest does, one whose name is past its cap. */
-  refusal: (span: JsonSpan) => string | undefined = (span) => (nameOf(span).length > NAME_MAX ? 'name over its cap' : undefined);
+  refusal: (span: JsonSpan) => string | undefined = (span) => ([...nameOf(span)].length > NAME_MAX ? 'name over its cap' : undefined);
   readonly #answered = new Map<string, string>();
   #server: Server | undefined;
 
@@ -100,7 +93,7 @@ export class FakeIngest {
         this.received.push({ url: request.url ?? '', headers: request.headers, body });
         if (this.status !== 200) {
           response.writeHead(this.status, { 'Content-Type': 'application/json' });
-          response.end(JSON.stringify({ code: 7, message: '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
+          response.end(JSON.stringify({ code: 7, message: this.type ?? '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
           return;
         }
         const digest = createHash('sha256').update(body).digest('hex');

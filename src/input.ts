@@ -1,11 +1,6 @@
 /**
- * What a hook is handed, by Cursor on stdin, and what of it is kept: a line
- * naming the event, its time, its turn and its model, and of each event the
- * few values a run is built from, each checked to be a plain name, number or
- * flag. Everything else Cursor sends — the person's email, the prompt and its
- * attachments, the reply and the thoughts, a tool's input and output, a
- * command, a path, the workspace's folders, a subagent's task and summary, an
- * error's message — is never read, and never written down.
+ * What a hook is handed by Cursor on stdin, and what of it is kept: the event, its time, its turn and model, and the
+ * few values a run is built from, each checked to be a plain name, number or flag; everything else Cursor sends is never read.
  */
 
 export const EVENTS = [
@@ -26,13 +21,14 @@ export function isEvent(value: unknown): value is CursorEvent {
 }
 
 /** The events whose hook hands the conversation to a detached copy, to send what has ended. */
-export const CLOSING: ReadonlySet<CursorEvent> = new Set(['stop', 'sessionEnd']);
+export type ClosingEvent = 'stop' | 'sessionEnd';
+const CLOSING: ReadonlySet<CursorEvent> = new Set<ClosingEvent>(['stop', 'sessionEnd']);
 
-/**
- * What Cursor reads from a hook: leave to go on, and nothing else. `stop`
- * gets no `followup_message`, which Cursor would send as the person's next
- * prompt.
- */
+export function isClosing(value: unknown): value is ClosingEvent {
+  return typeof value === 'string' && (CLOSING as ReadonlySet<string>).has(value);
+}
+
+/** What Cursor reads from a hook: leave to go on, and nothing else; `stop` gets no `followup_message`, which Cursor would send as the person's next prompt. */
 export function answerFor(event: string | undefined): string {
   return event === 'beforeSubmitPrompt' ? '{"continue":true}' : '{}';
 }
@@ -100,8 +96,7 @@ const count: Check = (value) =>
 const flag: Check = (value) => (typeof value === 'boolean' ? value : undefined);
 
 const generation: Check = (value) => (isId(value) ? value : undefined);
-// A model's slug (`claude-opus-4-7-thinking-max`), a tool's name (`Shell`,
-// `MCP:create_issue`) or a subagent's kind (`explore`): names, never text.
+// A model's slug (`claude-opus-4-7-thinking-max`), a tool's name (`Shell`, `MCP:create_issue`) or a subagent's kind (`explore`): names, never text.
 const model = matching(/^[\w.:\/@+ ()-]{1,128}$/);
 const tool = matching(/^[\w.:\/@+-]{1,160}$/);
 const subagent = matching(/^[\w.:-]{1,64}$/);
@@ -144,9 +139,8 @@ export interface Received {
 }
 
 /**
- * The event `raw` as the plugin keeps it, or nothing where it is not an event
- * of a conversation: `event` is the one the hook was registered for, and
- * Cursor's own name for it, where given, must agree.
+ * The event `raw` as the plugin keeps it, or nothing where it is not an event of a conversation: `event` is the one the
+ * hook was registered for, and Cursor's own name for it, where given, must agree.
  */
 export function received(event: CursorEvent, raw: unknown, at: number, id: string): Received | undefined {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;

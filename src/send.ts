@@ -1,7 +1,6 @@
 /**
- * Sends a conversation's finished turns through the TypeScript SDK, one
- * export each: a turn sent again — after a copy that died before saving that
- * it had sent it — is then the same bytes, which ingest answers once.
+ * Sends a conversation's finished turns through the TypeScript SDK, one export each: a turn sent again, after a copy
+ * that died before saving that it had, is the same bytes, which ingest stores once within the hour.
  */
 
 import { Telmoni } from 'telmoni';
@@ -21,11 +20,14 @@ const EXPORT_WORST_SECONDS = ATTEMPTS * ATTEMPT_SECONDS + (ATTEMPTS - 1) * RETRY
 const FLUSH_MARGIN_SECONDS = 30;
 
 /**
- * The SDK's warnings of an answer ingest gave with the turn stored, less a
- * span it refused or an attribute it dropped: sent again, the turn would be
- * answered the same, and would hold up every turn after it.
+ * The SDK's warnings of spans it could not deliver, which a later copy may yet get through: Telmoni out of reach or busy
+ * past its retries, or a key or an endpoint it refused. Every other warning is of spans delivered, or dropped for good.
  */
-const STORED = /^telmoni: the server (?:refused a span|dropped|said)\b/;
+const UNDELIVERED = /^telmoni: (?:export failed after |an export failed \(|the export queue was full|export refused with (?!400 |402 |413 |500 ))/;
+/** Ingest's `500` for a fault of its database, which a later copy may find mended, as it would none of its other `500`s. */
+const DATABASE_FAILED = /^telmoni: export refused with 500 \/errors\/internal\/database;/;
+/** An export refused for good: for what it holds (`400`, `413`), a fault of ingest's own (any other `500`), an organization paused (`402`). */
+const REFUSED = /^telmoni: export refused with (?:400|402|413|500) /;
 
 export interface Destination {
   endpoint: string | undefined;
@@ -62,12 +64,8 @@ export class Sender {
   }
 
   /**
-   * Whether the platform took the turn. The SDK warns of every export it
-   * could not deliver and of what ingest kept less of, and its warnings never
-   * carry a conversation's content, so a turn counts as taken when its flush
-   * settles with every export delivered. A record the SDK refuses counts as
-   * done: it would be refused again on every hook, and must not hold up the
-   * turns after it.
+   * Whether the turn is done with: taken, whole or in part, or refused for good, which the same bytes would get from every
+   * copy. The SDK's warnings, logged as they are, never carry anything of the conversation.
    */
   async send(record: RunRecord): Promise<boolean> {
     this.#warnings.length = 0;
@@ -78,9 +76,11 @@ export class Sender {
       return true;
     }
     const flushed = await this.#telmoni.flush(flushSecondsOf(record));
-    const lost = this.#warnings.filter((warning) => !STORED.test(warning));
+    const lost = this.#warnings.filter((warning) => UNDELIVERED.test(warning) || DATABASE_FAILED.test(warning));
     if (flushed && lost.length === 0) {
-      if (this.#warnings.length > 0) this.#log(`sent, though ingest kept less than all of it: ${this.#warnings.join('; ')}`);
+      const warnings = this.#warnings.join('; ');
+      if (this.#warnings.some((warning) => REFUSED.test(warning))) this.#log(`refused, not sent again: ${warnings}`);
+      else if (warnings !== '') this.#log(`taken in part: ${warnings}`);
       return true;
     }
     this.#log(flushed ? `not sent: ${lost.join('; ')}` : 'not sent: the export did not finish in time');

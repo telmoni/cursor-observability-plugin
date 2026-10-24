@@ -77,8 +77,7 @@ describe('what a hook keeps', () => {
       failure_type: 'error',
       is_interrupt: false,
     });
-    // Cursor fires a subagent's hooks in its parent's conversation, with the
-    // conversation's id where the turn's would be.
+    // Cursor fires a subagent's hooks in its parent's conversation, with the conversation's id where the turn's would be.
     expect(strip({ ...of('subagentStop') })).toEqual({
       hook_event_name: 'subagentStop',
       generation_id: '7f3c2a10-5b4e-4c61-9d2a-0e8f1b2c3d4e',
