@@ -13,7 +13,7 @@ telmoni-cursor-observability setup
 
 The package is the plugin as built, nothing else. `setup` asks for the key, or takes `TELMONI_API_KEY`, checks that it is shaped like one, and keeps it in `~/.cursor/telmoni.json`, readable by you alone; then it adds the plugin's hooks to `~/.cursor/hooks.json`, beside any other tool's. Cursor reloads that file as it changes, so your next prompt is recorded.
 
-The endpoint defaults to `https://api.telmoni.com`; for a self-hosted Telmoni, set `TELMONI_ENDPOINT` to its machine host when you run `setup`. `TELMONI_API_KEY` and `TELMONI_ENDPOINT` in the environment Cursor runs its hooks with take the place of the file's.
+The endpoint defaults to `https://api.telmoni.com`; for a self-hosted Telmoni, set `TELMONI_ENDPOINT` to its machine host when you run `setup`, which refuses one the SDK would not send to, with the SDK's reason. `TELMONI_API_KEY` and `TELMONI_ENDPOINT` in the environment Cursor runs its hooks with take the place of the file's. The hooks read the file only while it is yours and shut to everyone else, as `setup` leaves it; otherwise they send nothing, and `hook.log` says why. With both variables set, they do not read it.
 
 The hooks run the Node that ran `setup`, by its path, so a Cursor opened from the Dock, without your shell's `PATH`, finds it. If you move to another Node, run `telmoni-cursor-observability setup` again.
 
@@ -39,7 +39,7 @@ telmoni-cursor-observability setup --project
 
 Commit the `.cursor/hooks.json` it writes. Then give the agents the package, `npm install -g @telmoni/cursor-observability-plugin` in the install step of `.cursor/environment.json`, and the key, as the Cloud Agents secret `TELMONI_API_KEY`.
 
-The repository's hooks run on your teammates' machines too. Where the package is installed, they keep and send nothing until a teammate runs `telmoni-cursor-observability setup`; where it is not, Cursor's Hooks output shows them failing to start, and Cursor goes on as before. On a machine where both are set up, the repository's hooks record its conversations and your own stand aside, so nothing is recorded twice.
+The repository's hooks run on your teammates' machines too. Where the package is installed, they keep and send nothing until a teammate runs `telmoni-cursor-observability setup`, or has `TELMONI_API_KEY` in the environment Cursor runs its hooks with; where it is not, Cursor's Hooks output shows them failing to start, and Cursor goes on as before. On a machine where both are set up, the repository's hooks record its conversations and your own stand aside, so nothing is recorded twice — unless the repository's cannot start, their command being in no folder of Cursor's `PATH`, when your own record.
 
 ## What it records
 
@@ -55,7 +55,7 @@ Cursor hands its hooks your email, your prompts and its replies, each tool's inp
 
 ## When something is wrong
 
-The hooks never block Cursor, and slow it no more than Node takes to start: each answers at once, and a turn is sent by a detached process once it has ended. Anything that went wrong is a line in `~/.cursor/telmoni/hook.log`, naming what kind of thing went wrong and never anything from your conversation. A turn Telmoni could not take is sent again when the conversation's next turn ends, and one sent again within the hour is stored once. Where Telmoni keeps a turn less a part it refused, the log says what, and the turn is not sent again.
+The hooks never block Cursor, and slow it no more than Node takes to start: each answers at once, and a turn is sent by a detached process once it has ended. Anything that went wrong is a line in `~/.cursor/telmoni/hook.log`, naming what kind of thing went wrong and never anything from your conversation. A turn Telmoni could not take — out of reach, busy, its database failing it, or refusing the key — is sent again when the conversation's next turn ends, and one sent again within the hour is stored once. A turn Telmoni took in part, or refused for good, is logged and not sent again.
 
 ## Uninstall
 
@@ -64,7 +64,7 @@ telmoni-cursor-observability remove
 npm uninstall -g @telmoni/cursor-observability-plugin
 ```
 
-`remove` takes the plugin's hooks out of `~/.cursor/hooks.json`, leaving every other tool's — the file as setup found it, to the byte, where nothing else in it changed since — and deletes your key and `~/.cursor/telmoni/`, the plugin's record of what it sent. In a repository, `telmoni-cursor-observability remove --project` takes them out of `.cursor/hooks.json`. From a checkout, `node dist/telmoni-cursor-observability.mjs remove`, run in it, does the same as `remove`.
+`remove` takes the plugin's hooks out of `~/.cursor/hooks.json`, leaving every other tool's — the file as setup found it, to the byte, where nothing else in it changed since — and deletes your key and `~/.cursor/telmoni/`, the plugin's record of what it sent, but for what `setup --project` kept of a repository's hooks file, which that repository's `remove --project` puts back. In a repository, `telmoni-cursor-observability remove --project` takes them out of `.cursor/hooks.json`. From a checkout, `node dist/telmoni-cursor-observability.mjs remove`, run in it, does the same as `remove`.
 
 ## License
 
