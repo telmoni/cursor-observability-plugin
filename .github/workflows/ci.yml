@@ -33,6 +33,9 @@ jobs:
       - name: Run the gate
         run: make check
 
+      - name: The committed bundle is this commit's build
+        run: test -z "$(git status --porcelain -- dist)"
+
   lint-workflows:
     name: lint workflows (actionlint)
     runs-on: ubuntu-24.04

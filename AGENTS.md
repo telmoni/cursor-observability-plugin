@@ -1,6 +1,6 @@
 # Telmoni for Cursor — Agent Guidelines
 
-The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://github.com/telmoni/cursor-observability-plugin)): hooks that record each turn of a person's Cursor agent conversations as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `@telmoni/cursor-observability-plugin` alone, installed with `npm install -g` and wired into Cursor by its `telmoni-cursor-observability setup`. The repository is public, and every file in it is published as written.
+The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://github.com/telmoni/cursor-observability-plugin)): hooks that record each turn of a person's Cursor agent conversations as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `@telmoni/cursor-observability-plugin`, installed with `npm install -g` and wired into Cursor by its `telmoni-cursor-observability setup`, or as a Cursor plugin from this repository itself, whose hooks run the bundle committed in `dist/`. The repository is public, and every file in it is published as written.
 
 ## Ground Rules
 - **Pre-launch:** nothing has shipped. Change the record, the spool, the state and the hooks to their ideal state; no migration paths.
@@ -22,6 +22,7 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 | `src/send.ts`, `src/state.ts`, `src/settings.ts`, `src/log.ts` | Sending through the SDK; each conversation's state and lock; the key, endpoint and folder; `hook.log`. |
 | `src/setup.ts`, `src/hooks.ts` | `setup` and `remove`; Cursor's `hooks.json` and the plugin's entries in it. |
 | `tests/` | The suites; `tests/fixtures/` holds synthetic conversations written from Cursor's documented payloads. |
+| `.cursor-plugin/plugin.json`, `hooks/hooks.json`, `dist/` | The repository as a Cursor plugin: the manifest, its `version` the package's; the hooks file, the eight events each running the bundle at `${CURSOR_PLUGIN_ROOT}`; and the bundle itself, committed. |
 | `ARCHITECTURE.md` | How the plugin works, and why. |
 | [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`. |
 | [`telmoni/docs`](https://github.com/telmoni/docs) | Sibling repo, checked out as `../docs`: the book, whose `api/coding-agents.mdx` documents this plugin. |
@@ -31,7 +32,7 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 - **Locally:** `node dist/telmoni-cursor-observability.mjs setup` wires the build in this checkout into `~/.cursor/hooks.json`, `remove` takes it out again; `HOME=$(mktemp -d) node dist/telmoni-cursor-observability.mjs setup` shows what it writes without touching Cursor.
 
 ## Code Rules
-- TypeScript on Node 22, bundled by tsup into `dist/`, the SDK inside it, split so the hook's entry loads none of the SDK: Cursor waits on every hook, and evaluating the SDK costs one about 70 ms. Import nothing into `cli.ts` or `hook.ts` that the hook does not need, and only what Node's startup already holds; anything else is imported where it is used. Nothing built is committed.
+- TypeScript on Node 22, bundled by tsup into `dist/`, the SDK inside it, split so the hook's entry loads none of the SDK: Cursor waits on every hook, and evaluating the SDK costs one about 70 ms. Import nothing into `cli.ts` or `hook.ts` that the hook does not need, and only what Node's startup already holds; anything else is imported where it is used. `dist/` is committed, since Cursor installs the repository as it stands: build before committing, and CI refuses a bundle that is not the commit's own build.
 - Everything that leaves goes through the SDK's `recordRun`, never a request of the plugin's own: the contract, the content rules and the retries are the SDK's.
 - Comments are for a person reading the code, and short: they say *why*, never *what* — a doc comment in a line or two, an inline comment in one, a test's doc in one line on what it proves. The reasoning behind a change (a race worked through, the designs turned down, its history) goes in `ARCHITECTURE.md` or the commit message, never above a function, and editing a comment means shortening its whole block. No AI signatures anywhere.
 - Never log a key, a token or anything read from a conversation; log kinds.

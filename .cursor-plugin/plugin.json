@@ -1,0 +1,23 @@
+{
+  "name": "telmoni-observability",
+  "displayName": "Telmoni Observability",
+  "version": "0.1.2",
+  "description": "Records each turn of your Cursor agent conversations in Telmoni as a run: the model and its tokens, the tools, the subagents and the times. Never a prompt, a reply, a thought, a tool's input or output, a path or your email.",
+  "author": {
+    "name": "Telmoni",
+    "email": "hello@telmoni.com"
+  },
+  "homepage": "https://telmoni.com/docs/api/coding-agents",
+  "repository": "https://github.com/telmoni/cursor-observability-plugin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "telmoni",
+    "observability",
+    "monitoring",
+    "telemetry",
+    "tracing",
+    "hooks"
+  ],
+  "category": "developer-tools",
+  "hooks": "hooks/hooks.json"
+}

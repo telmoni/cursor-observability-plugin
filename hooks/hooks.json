@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook sessionStart",
+        "timeout": 10
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook beforeSubmitPrompt",
+        "timeout": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook postToolUse",
+        "timeout": 10
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook postToolUseFailure",
+        "timeout": 10
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook subagentStop",
+        "timeout": 10
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook afterAgentResponse",
+        "timeout": 10
+      }
+    ],
+    "stop": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook stop",
+        "timeout": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/telmoni-cursor-observability.mjs\" hook sessionEnd",
+        "timeout": 10
+      }
+    ]
+  }
+}

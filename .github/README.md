@@ -29,6 +29,12 @@ node cursor-observability-plugin/dist/telmoni-cursor-observability.mjs setup
 
 `setup` works as above, and the hooks it writes run that build by its path, so keep the checkout where it is.
 
+### As a Cursor plugin
+
+Cursor installs this repository itself as a plugin: from Cursor's marketplace once it is listed there, as **Telmoni Observability**; by its address, `https://github.com/telmoni/cursor-observability-plugin`, in the search field of Cursor's Plugins settings; or cloned into `~/.cursor/plugins/local/telmoni-observability` and loaded with **Developer: Reload Window**. Its hooks run the bundle committed in `dist/` with the `node` on the `PATH` Cursor runs its hooks with, so you need Node.js, one of the versions above, and not npm.
+
+Installed so, there is no `setup`: give it the key as `TELMONI_API_KEY` in the environment Cursor runs its hooks with, or write `~/.cursor/telmoni.json` yourself, `{"apiKey": "tm_…"}`, with an `"endpoint"` for a self-hosted Telmoni, and make it readable by you alone (`chmod 600`); the hooks read it as `setup`'s. Where hooks `setup` wrote run the plugin too, the plugin's stand aside, so a conversation is recorded once.
+
 ## Cloud agents
 
 Cursor's cloud agents never see your home folder: they read the repository's hooks, which run the package's command. In the repository:
@@ -64,7 +70,7 @@ telmoni-cursor-observability remove
 npm uninstall -g @telmoni/cursor-observability-plugin
 ```
 
-`remove` takes the plugin's hooks out of `~/.cursor/hooks.json`, leaving every other tool's — the file as setup found it, to the byte, where nothing else in it changed since — and deletes your key and `~/.cursor/telmoni/`, the plugin's record of what it sent, but for what `setup --project` kept of a repository's hooks file, which that repository's `remove --project` puts back. In a repository, `telmoni-cursor-observability remove --project` takes them out of `.cursor/hooks.json`. From a checkout, `node dist/telmoni-cursor-observability.mjs remove`, run in it, does the same as `remove`.
+Installed as a Cursor plugin, remove it in Cursor, and delete `~/.cursor/telmoni.json` and `~/.cursor/telmoni/` yourself. `remove` takes the plugin's hooks out of `~/.cursor/hooks.json`, leaving every other tool's — the file as setup found it, to the byte, where nothing else in it changed since — and deletes your key and `~/.cursor/telmoni/`, the plugin's record of what it sent, but for what `setup --project` kept of a repository's hooks file, which that repository's `remove --project` puts back. In a repository, `telmoni-cursor-observability remove --project` takes them out of `.cursor/hooks.json`. From a checkout, `node dist/telmoni-cursor-observability.mjs remove`, run in it, does the same as `remove`.
 
 ## License
 

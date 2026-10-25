@@ -14,7 +14,7 @@ skills
 
 # ── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
-dist/
+# `dist/` is committed: Cursor installs the plugin from this repository as it stands.
 # The tarball `npm pack` writes.
 *.tgz
 

@@ -6,11 +6,11 @@
 import { accessSync, constants, readFileSync, readSync, writeSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 
-import { registersProject } from './hooks.js';
+import { registersProject, registersUser } from './hooks.js';
 import { type CursorEvent, answerFor, isClosing, isEvent, isId, received } from './input.js';
 import { kindOf, log } from './log.js';
 import type { HookInput } from './session.js';
-import { type Settings, settingsFrom } from './settings.js';
+import { type Settings, pathsOf, settingsFrom } from './settings.js';
 import { append, sweep } from './spool.js';
 
 /** How the detached copy is handed its input: in its environment, never on its command line, which anyone on the machine may list. */
@@ -128,6 +128,19 @@ function projectRuns(env: NodeJS.ProcessEnv, event: CursorEvent): boolean {
   return onPath(env, 'telmoni-cursor-observability', root);
 }
 
+/**
+ * Whether the person's own hooks run the plugin at `event` too, this copy being one Cursor installed as a plugin
+ * (`CURSOR_PLUGIN_ROOT` set): with both in place, the person's own record and the plugin's stand aside.
+ */
+function userRuns(env: NodeJS.ProcessEnv, event: CursorEvent): boolean {
+  if (!env['CURSOR_PLUGIN_ROOT']?.trim()) return false;
+  try {
+    return registersUser(JSON.parse(readFileSync(pathsOf().hooks, 'utf8')), event);
+  } catch {
+    return false;
+  }
+}
+
 /** Whether `name` is a program in a folder of `env`'s `PATH`, a relative one read from `cwd`, by Windows's `PATHEXT` there. */
 function onPath(env: NodeJS.ProcessEnv, name: string, cwd: string): boolean {
   const names =
@@ -211,7 +224,7 @@ export async function hook(args: readonly string[], script: string, env: NodeJS.
       log(settings.dir, `${event}: hook input not understood; nothing kept`);
       return;
     }
-    if (!args.includes('--project') && projectRuns(env, event)) return;
+    if (!args.includes('--project') && (projectRuns(env, event) || userRuns(env, event))) return;
     // Without a key, or past a key file passed over, nothing is sent, so nothing of the conversation is kept.
     if (settings.apiKey !== undefined && settings.keyFileProblem === undefined) append(settings.dir, got.conversationId, got.line);
     if (!isClosing(event)) return;

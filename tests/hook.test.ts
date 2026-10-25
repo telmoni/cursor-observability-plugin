@@ -492,6 +492,22 @@ describe('the hook', () => {
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(2);
   }, 30_000);
 
+  it('runs as the plugin’s own hooks file runs it: through a shell, the bundle at the root Cursor installed it to', async () => {
+    const file = JSON.parse(readFileSync(new URL('../hooks/hooks.json', import.meta.url), 'utf8')) as { hooks: Record<string, Array<{ command: string }>> };
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PLUGIN_ROOT: dirname(dirname(CLI)) };
+    expect((await run([], JSON.stringify(fixture('ide')[2]!.payload), { command: file.hooks['postToolUse']![0]!.command, env })).stdout).toBe('{}');
+    expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
+  it('stands aside, run as a Cursor plugin’s hook, where the person’s own hooks run it too', async () => {
+    mkdirSync(join(home.path, '.cursor'), { recursive: true });
+    const command = `'${process.execPath}' '${CLI}' hook postToolUse`;
+    writeFileSync(join(home.path, '.cursor', 'hooks.json'), JSON.stringify({ version: 1, hooks: { postToolUse: [{ command }] } }));
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PLUGIN_ROOT: home.path };
+    expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
+    expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
+  });
+
   it('records a workspace that is the home folder, whose hooks file is the person’s own', async () => {
     mkdirSync(join(home.path, '.cursor'), { recursive: true });
     const command = `'${process.execPath}' '${CLI}' hook postToolUse`;

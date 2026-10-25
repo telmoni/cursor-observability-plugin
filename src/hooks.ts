@@ -110,14 +110,24 @@ export function holdsOurs(config: HooksFile): boolean {
 /** A repository's own entry, as `setup --project` writes one. */
 const PROJECT = /\s--project(?:\s|$)/;
 
+/** The commands of the plugin's own entries at `event` in `config`, a hooks file as Cursor reads one. */
+function oursAt(config: unknown, event: CursorEvent): string[] {
+  if (config === null || typeof config !== 'object') return [];
+  const hooks = (config as HooksFile).hooks;
+  if (hooks === null || typeof hooks !== 'object') return [];
+  const entries = (hooks as Record<string, unknown>)[event];
+  return Array.isArray(entries) ? entries.filter(isOurs).map((entry) => (entry as { command: string }).command) : [];
+}
+
 /**
  * Whether `config` runs the plugin at `event` as a repository's hooks do. A workspace that is the home folder has the
  * person's own hooks file for its `.cursor/hooks.json`, whose entries are no repository's.
  */
 export function registersProject(config: unknown, event: CursorEvent): boolean {
-  if (config === null || typeof config !== 'object') return false;
-  const hooks = (config as HooksFile).hooks;
-  if (hooks === null || typeof hooks !== 'object') return false;
-  const entries = (hooks as Record<string, unknown>)[event];
-  return Array.isArray(entries) && entries.some((entry) => isOurs(entry) && PROJECT.test((entry as { command: string }).command));
+  return oursAt(config, event).some((command) => PROJECT.test(command));
+}
+
+/** Whether `config`, the person's own hooks file, runs the plugin at `event` as `setup` wrote it. */
+export function registersUser(config: unknown, event: CursorEvent): boolean {
+  return oursAt(config, event).some((command) => !PROJECT.test(command));
 }
