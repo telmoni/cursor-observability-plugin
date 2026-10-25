@@ -43,7 +43,7 @@ function turn(runId: string): RunRecord {
 
 describe('a sender', () => {
   it('sends each turn in an export of its own, through the SDK, to ingest', async () => {
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(true);
       expect(await sender.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'))).toBe(true);
@@ -53,7 +53,7 @@ describe('a sender', () => {
     expect(ingest.received).toHaveLength(2);
     for (const request of ingest.received) {
       expect(request.url).toBe('/otlp/v1/traces');
-      expect(request.headers['authorization']).toBe('Bearer telmoni_test');
+      expect(request.headers['authorization']).toBe('Bearer tm_test');
     }
     const runs = ingest.spans().filter((span) => span.name === 'invoke_agent cursor');
     expect(runs.map((span) => attributesOf(span)['gen_ai.conversation.id'])).toEqual(['conversation-1', 'conversation-1']);
@@ -65,7 +65,7 @@ describe('a sender', () => {
 
   it('reports a turn the platform refused as not sent, naming why', async () => {
     ingest.status = 403;
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(false);
     } finally {
@@ -82,7 +82,7 @@ describe('a sender', () => {
       start: at(0) + index,
       end: at(0) + index + 1,
     }));
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: tools })).toBe(true);
     } finally {
@@ -97,7 +97,7 @@ describe('a sender', () => {
   it('passes over a turn refused for good, which the same bytes would get again, and keeps one refused for its key', async () => {
     for (const status of [400, 402, 413, 500, 401]) {
       ingest.status = status;
-      const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+      const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
       try {
         expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(status !== 401);
       } finally {
@@ -113,7 +113,7 @@ describe('a sender', () => {
   it('keeps a turn ingest refused for a fault of its database, which a later copy may find mended', async () => {
     ingest.status = 500;
     ingest.type = '/errors/internal/database';
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(false);
     } finally {
@@ -124,7 +124,7 @@ describe('a sender', () => {
 
   it('counts a turn the SDK sent less a field it could not take as sent, rather than send it again at every hook', async () => {
     const call = { type: 'model_call' as const, model: 'claude-opus-4-7', provider: 'cursor', start: at(0), end: at(9), usage: { inputTokens: -1 } };
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: [call] })).toBe(true);
     } finally {
@@ -136,7 +136,7 @@ describe('a sender', () => {
 
   it('counts a turn ingest stored as sent, though it refused a span of it, rather than send it again at every hook', async () => {
     ingest.refusal = (span) => (attributesOf(span)['gen_ai.tool.name'] === 'MCP:refused' ? 'name over its cap' : undefined);
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     const record = turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d');
     const refused = { type: 'tool_call' as const, name: 'MCP:refused', start: at(1), end: at(2) };
     try {
@@ -151,7 +151,7 @@ describe('a sender', () => {
 
   it('sends a turn sent again as the same bytes, which ingest stores once', async () => {
     for (let copy = 0; copy < 2; copy++) {
-      const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+      const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
       try {
         expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(true);
       } finally {
@@ -164,7 +164,7 @@ describe('a sender', () => {
   });
 
   it('passes over a turn the SDK refuses, rather than hold the conversation up on it', async () => {
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), end: at(-1) })).toBe(true);
     } finally {

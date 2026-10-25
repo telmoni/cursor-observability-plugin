@@ -9,7 +9,7 @@ import { type Options, nodeOf, remove, setup } from '../src/setup';
 import { tempDir } from './helpers';
 
 /** A key of the shape the platform mints, and no key of anyone's. */
-const KEY = `telmoni_${'Ab3dE6gH9j'.repeat(4)}K-_`;
+const KEY = `tm_${'Ab3dE6gH9j'.repeat(4)}K-_`;
 const NODE = '/opt/node 22/bin/node';
 const SCRIPT = '/opt/node 22/lib/node_modules/@telmoni/cursor-observability-plugin/dist/telmoni-cursor-observability.mjs';
 

@@ -45,8 +45,8 @@ export interface Options {
   print: (line: string) => void;
 }
 
-/** As the platform mints a key: `telmoni_` and 32 random bytes in URL-safe base64. */
-const KEY = /^telmoni_[A-Za-z0-9_-]{43}$/;
+/** As the platform mints a key: `tm_` and 32 random bytes in URL-safe base64. */
+const KEY = /^tm_[A-Za-z0-9_-]{43}$/;
 
 /** Why the SDK would not send to `endpoint`, in its own words, which name at most the host; nothing where it would. */
 async function refusalOf(endpoint: string): Promise<string | undefined> {
@@ -217,7 +217,7 @@ export async function setup(options: Options): Promise<number> {
   }
   if (!KEY.test(apiKey)) {
     print(
-      "That is not a Telmoni API key: a project's key starts telmoni_ and runs 51 characters. Make one holding the ingest scope on your project's API keys page. Nothing was changed.",
+      "That is not a Telmoni API key: a project's key starts tm_ and runs 46 characters. Make one holding the ingest scope on your project's API keys page. Nothing was changed.",
     );
     return 1;
   }

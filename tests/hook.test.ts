@@ -16,7 +16,7 @@ import { FakeIngest, PLANTED, type Step, attributesOf, fixture, tempDir } from '
 const CLI = fileURLToPath(new URL('../dist/telmoni-cursor-observability.mjs', import.meta.url));
 const IDE = '7f3c2a10-5b4e-4c61-9d2a-0e8f1b2c3d4e';
 const HEADLESS = '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b';
-const KEY = `telmoni_${'Ab3dE6gH9j'.repeat(4)}K-_`;
+const KEY = `tm_${'Ab3dE6gH9j'.repeat(4)}K-_`;
 
 /** What Cursor puts in every hook's environment, planted as the fixtures plant their fields. */
 const CURSOR_ENV = {
@@ -175,7 +175,7 @@ describe('the hook', () => {
   });
 
   it('reads an event as PowerShell pipes it on Windows: a byte order mark before it, a line’s end after', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test' };
+    const env = { TELMONI_API_KEY: 'tm_test' };
     const payload = `\uFEFF${JSON.stringify(fixture('ide')[2]!.payload)}\r\n`;
     expect(await run(['hook', 'postToolUse'], payload, { env })).toMatchObject({ code: 0, stdout: '{}' });
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8')).toContain('"tool_name":"Read"');
@@ -238,7 +238,7 @@ describe('the hook', () => {
   it('reads an event whole on a pipe Cursor never closes, rather than wait for an end that never comes', async () => {
     const child = spawn(process.execPath, [CLI, 'hook', 'postToolUse'], {
       stdio: ['pipe', 'pipe', 'ignore'],
-      env: { PATH: process.env['PATH'] ?? '', HOME: home.path, TELMONI_API_KEY: 'telmoni_test' },
+      env: { PATH: process.env['PATH'] ?? '', HOME: home.path, TELMONI_API_KEY: 'tm_test' },
     });
     const out: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
@@ -305,7 +305,7 @@ describe('the hook', () => {
   }, 30_000);
 
   it('closes a headless session’s turn at the session’s end, with no stop', async () => {
-    const ran = await conversation(fixture('headless'), { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint });
+    const ran = await conversation(fixture('headless'), { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint });
     expect(ran.every(({ code }) => code === 0)).toBe(true);
     expect(await until(() => runs() === 1 && listing() === `${HEADLESS}.json`, 20_000)).toBe(true);
     const names = ingest.spans().map((span) => span.name);
@@ -339,7 +339,7 @@ describe('the hook', () => {
   }, 30_000);
 
   it('keeps every line of hooks that run at once, and sends their turn once', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint };
+    const env = { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint };
     const [, prompt, read] = fixture('ide');
     await run(['hook', 'beforeSubmitPrompt'], JSON.stringify(prompt!.payload), { env });
     const calls = Array.from({ length: 12 }, (_, index) => ({
@@ -357,7 +357,7 @@ describe('the hook', () => {
   }, 30_000);
 
   it('sends a turn Telmoni could not take with the next, and ingest stores each once', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint };
+    const env = { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint };
     const steps = fixture('ide');
     const second = steps.findIndex((step) => step.payload.generation_id === 'a1b2c3d4-0002-4a00-8000-000000000002');
     ingest.status = 503;
@@ -374,7 +374,7 @@ describe('the hook', () => {
   }, 60_000);
 
   it('never takes a subagent’s own calls, which Cursor gives a conversation of their own, into its parent’s run', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint };
+    const env = { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint };
     const subagent = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
     const steps = fixture('ide');
     const read = steps[2]!.payload;
@@ -413,7 +413,7 @@ describe('the hook', () => {
   }, 30_000);
 
   it('hands the turn to a copy outside its own process group, which outlives the group’s end', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint };
+    const env = { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint };
     const steps = fixture('ide');
     const stop = steps.findIndex((step) => step.payload.hook_event_name === 'stop');
     await conversation(steps.slice(0, stop), env);
@@ -454,7 +454,7 @@ describe('the hook', () => {
     const bin = join(home.path, 'bin');
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, 'telmoni-cursor-observability'), '#!/bin/sh\n', { mode: 0o755 });
-    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: project, PATH: bin };
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PROJECT_DIR: project, PATH: bin };
     const payload = JSON.stringify(fixture('ide')[2]!.payload);
     expect((await run(['hook', 'postToolUse'], payload, { env })).stdout).toBe('{}');
     expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
@@ -466,13 +466,13 @@ describe('the hook', () => {
     const project = repository();
     mkdirSync(join(project, 'tools'), { recursive: true });
     writeFileSync(join(project, 'tools', 'telmoni-cursor-observability'), '#!/bin/sh\n', { mode: 0o755 });
-    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: project, PATH: 'tools' };
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PROJECT_DIR: project, PATH: 'tools' };
     expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
     expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
   });
 
   it('records where the workspace’s own hooks cannot start, the plugin being on no folder of the PATH they run with', async () => {
-    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: repository(), PATH: join(home.path, 'empty') };
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PROJECT_DIR: repository(), PATH: join(home.path, 'empty') };
     expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
   });
@@ -486,7 +486,7 @@ describe('the hook', () => {
     mkdirSync(telmoni(), { recursive: true, mode: 0o700 });
     writeFileSync(join(telmoni(), `${IDE}.jsonl`), lines.map((line) => `${JSON.stringify(line)}\n`).join(''), { mode: 0o600 });
     const handoff = JSON.stringify({ event: 'sessionEnd', conversation_id: IDE, at: at + 500 });
-    const env = { TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint, TELMONI_CURSOR_HOOK_INPUT: handoff };
+    const env = { TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint, TELMONI_CURSOR_HOOK_INPUT: handoff };
     expect((await run(['hook', 'sessionEnd'], '', { env })).code).toBe(0);
     expect(runs()).toBe(0);
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(2);
@@ -496,7 +496,7 @@ describe('the hook', () => {
     mkdirSync(join(home.path, '.cursor'), { recursive: true });
     const command = `'${process.execPath}' '${CLI}' hook postToolUse`;
     writeFileSync(join(home.path, '.cursor', 'hooks.json'), JSON.stringify({ version: 1, hooks: { postToolUse: [{ command }] } }));
-    const env = { TELMONI_API_KEY: 'telmoni_test', CURSOR_PROJECT_DIR: home.path };
+    const env = { TELMONI_API_KEY: 'tm_test', CURSOR_PROJECT_DIR: home.path };
     expect((await run(['hook', 'postToolUse'], JSON.stringify(fixture('ide')[2]!.payload), { env })).stdout).toBe('{}');
     expect(readFileSync(join(telmoni(), `${IDE}.jsonl`), 'utf8').trim().split('\n')).toHaveLength(1);
   });

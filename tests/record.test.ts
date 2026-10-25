@@ -266,7 +266,7 @@ describe('every record', () => {
     const random = (): number => (seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31;
     const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
     const telmoni = new Telmoni(
-      { apiKey: 'telmoni_test', endpoint: 'http://127.0.0.1:9' },
+      { apiKey: 'tm_test', endpoint: 'http://127.0.0.1:9' },
       {
         transport: () => Promise.resolve({ status: 200, headers: { get: () => null }, text: () => Promise.resolve('{}') }),
         warn: () => undefined,

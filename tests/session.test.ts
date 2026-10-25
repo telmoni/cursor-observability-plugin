@@ -27,7 +27,7 @@ const HEADLESS = '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b';
 
 beforeEach(() => {
   dir = tempDir();
-  settings = { apiKey: 'telmoni_test', endpoint: undefined, dir: join(dir.path, 'telmoni') };
+  settings = { apiKey: 'tm_test', endpoint: undefined, dir: join(dir.path, 'telmoni') };
   sent = [];
   answers = [];
   attempts = 0;
@@ -424,7 +424,7 @@ describe('a copy', () => {
       `endpoint refused by the SDK (the endpoint must be an http:// or https:// URL): ${advice}`,
     ]);
     // No path, no userinfo, no key.
-    for (const secret of ['SENTINEL', 'person', 'telmoni_test']) expect(logged.join('\n')).not.toContain(secret);
+    for (const secret of ['SENTINEL', 'person', 'tm_test']) expect(logged.join('\n')).not.toContain(secret);
     expect(readState(settings.dir, IDE).sent).toEqual([]);
     expect(readSpool(settings.dir, IDE).filter((line) => line.hook_event_name === 'stop')).toHaveLength(3);
     expect(readSpool(settings.dir, HEADLESS)).toHaveLength(fixture('headless').length);

@@ -30,43 +30,43 @@ function keyFile(content: unknown, mode = 0o600): void {
 
 describe('the key and the endpoint', () => {
   it('come from the SDKs’ own variables first, the file read only for what they leave unset', () => {
-    keyFile({ apiKey: 'telmoni_file', endpoint: 'https://file.example' });
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'telmoni_env', endpoint: 'https://env.example', dir: dir() });
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env' }, home.path)).toStrictEqual({ apiKey: 'telmoni_env', endpoint: 'https://file.example', dir: dir() });
-    expect(settingsFrom({}, home.path)).toStrictEqual({ apiKey: 'telmoni_file', endpoint: 'https://file.example', dir: dir() });
+    keyFile({ apiKey: 'tm_file', endpoint: 'https://file.example' });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://env.example', dir: dir() });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://file.example', dir: dir() });
+    expect(settingsFrom({}, home.path)).toStrictEqual({ apiKey: 'tm_file', endpoint: 'https://file.example', dir: dir() });
   });
 
   it.skipIf(process.platform === 'win32')('are read from the file only where it is shut to everyone but its owner, as ssh reads a key', () => {
     for (const mode of [0o644, 0o640, 0o604, 0o620]) {
-      keyFile({ apiKey: 'telmoni_file', endpoint: 'https://elsewhere.example' }, mode);
+      keyFile({ apiKey: 'tm_file', endpoint: 'https://elsewhere.example' }, mode);
       expect(settingsFrom({}, home.path)).toStrictEqual({ apiKey: undefined, endpoint: undefined, dir: dir(), keyFileProblem: 'open to other users; chmod 600 it' });
     }
     // With the key in the environment, the file still names what it may have held, the endpoint among it.
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env' }, home.path)).toMatchObject({ apiKey: 'telmoni_env', endpoint: undefined, keyFileProblem: 'open to other users; chmod 600 it' });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ apiKey: 'tm_env', endpoint: undefined, keyFileProblem: 'open to other users; chmod 600 it' });
     // Both in the environment, the file is never read.
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'telmoni_env', endpoint: 'https://env.example', dir: dir() });
-    keyFile({ apiKey: 'telmoni_file' }, 0o400);
-    expect(settingsFrom({}, home.path).apiKey).toBe('telmoni_file');
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://env.example', dir: dir() });
+    keyFile({ apiKey: 'tm_file' }, 0o400);
+    expect(settingsFrom({}, home.path).apiKey).toBe('tm_file');
   });
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('say a file they may not open is unreadable, by kind', () => {
-    keyFile({ apiKey: 'telmoni_file' }, 0o000);
+    keyFile({ apiKey: 'tm_file' }, 0o000);
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('unreadable (Error:EACCES)');
   });
 
   it('pass over a file with a field there but empty or no string, rather than send the key to the default endpoint', () => {
     for (const endpoint of ['', '   ', null, 443, ['https://self.example']]) {
-      keyFile({ apiKey: 'telmoni_file', endpoint });
+      keyFile({ apiKey: 'tm_file', endpoint });
       expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'endpoint empty or not a string' });
     }
     keyFile({ apiKey: '', endpoint: 'https://self.example' });
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
   });
 
   it('say by kind what is wrong with a file that is no key file', () => {
     keyFile('{"apiKey": ');
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('not JSON');
-    keyFile('["telmoni_file"]');
+    keyFile('["tm_file"]');
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('not a JSON object');
     keyFile('x'.repeat(70_000));
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('too large');
