@@ -159,7 +159,7 @@ async function copy(handedOff, env) {
     tag = tagged;
     const write = (line) => log(settings.dir, `${tagged} ${line}`);
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sync }, { Sender }] = await Promise.all([import("./session-KTRO2DOZ.mjs"), import("./send-6RGCBA63.mjs")]);
+    const [{ sync }, { Sender }] = await Promise.all([import("./session-KTRO2DOZ.mjs"), import("./send-GLYPC4OF.mjs")]);
     await sync(input, settings, { sender: (destination) => new Sender(destination, write), log: write });
   } catch (error) {
     log(settings.dir, tag === void 0 ? `failed: ${kindOf(error)}` : `${tag} failed: ${kindOf(error)}`);
@@ -223,7 +223,7 @@ if (command === "hook") {
   await hook(args, SCRIPT);
   process.exitCode = 0;
 } else if ((command === "setup" || command === "remove") && args.every((arg) => arg === "--project")) {
-  const { askKey, nodeOf, remove, setup } = await import("./setup-NTLRTMJI.mjs");
+  const { askKey, nodeOf, remove, setup } = await import("./setup-TFDJ6BH3.mjs");
   const options = {
     project: args.includes("--project"),
     home: homedir(),

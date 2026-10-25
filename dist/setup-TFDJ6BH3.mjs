@@ -12,7 +12,7 @@ import {
 } from "./chunk-QMSA2DQT.mjs";
 import {
   Telmoni
-} from "./chunk-4CBLLZGE.mjs";
+} from "./chunk-FCY6IAVY.mjs";
 import "./chunk-SWUHJDYO.mjs";
 
 // src/setup.ts

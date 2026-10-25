@@ -101,7 +101,6 @@ export class FakeIngest {
         if (answer === undefined) {
           const refused: string[] = [];
           for (const span of spansIn(body)) {
-            if (span.name === 'telmoni.run.start') continue;
             const why = this.refusal(span);
             if (why === undefined) this.stored.push(span);
             else refused.push(`span ${span.spanId} refused: ${why}`);

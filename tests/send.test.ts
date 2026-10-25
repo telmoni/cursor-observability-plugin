@@ -89,8 +89,8 @@ describe('a sender', () => {
       await sender.close();
     }
     expect(logged).toEqual([]);
-    // The run, its start and every call.
-    expect(ingest.spans()).toHaveLength(3002);
+    // The run and every call.
+    expect(ingest.spans()).toHaveLength(3001);
     expect(ingest.stored.filter((span) => span.name === 'execute_tool Read')).toHaveLength(3000);
   }, 30_000);
 

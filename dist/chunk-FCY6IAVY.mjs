@@ -1507,13 +1507,9 @@ var BATCH_MAX_BYTES = 1 << 20;
 var BATCH_SPANS_MAX = 1e3;
 var ATTRIBUTE_KEY_MAX = 128;
 var ATTRIBUTE_VALUE_MAX = 1024;
-var BOUND_STALL_AFTER_S = "telmoni.bound.stall_after_s";
-var BOUND_MAX_STEPS = "telmoni.bound.max_steps";
-var BOUND_MAX_COST_USD = "telmoni.bound.max_cost_usd";
 var SAMPLE_RATE = "telmoni.sample_rate";
 var CANCELLED = "telmoni.cancelled";
 var SAMPLED_OUT = "telmoni.sampled_out";
-var RUN_START = "telmoni.run.start";
 var ENVIRONMENT = "deployment.environment.name";
 var RELEASE = "service.version";
 var TRACEPARENT = "traceparent";
@@ -1579,7 +1575,7 @@ var QueueFullError = class extends Error {
 function isAbort(error) {
   return typeof error === "object" && error !== null && error.name === "AbortError";
 }
-var VERSION3 = "0.1.0";
+var VERSION3 = "0.2.0";
 var ATTEMPTS = 3;
 var REQUEST_TIMEOUT_MS = 1e4;
 var ANSWER_MAX = 1 << 20;
@@ -1596,10 +1592,8 @@ var KINDS = {
   [SpanKind.PRODUCER]: 4,
   [SpanKind.CONSUMER]: 5
 };
-var DOUBLES = /* @__PURE__ */ new Set([BOUND_MAX_COST_USD, SAMPLE_RATE]);
+var DOUBLES = /* @__PURE__ */ new Set([SAMPLE_RATE]);
 var INTEGERS = /* @__PURE__ */ new Set([
-  BOUND_STALL_AFTER_S,
-  BOUND_MAX_STEPS,
   INPUT_TOKENS,
   OUTPUT_TOKENS,
   CACHE_READ_INPUT_TOKENS,
@@ -2007,7 +2001,6 @@ var Processor = class {
   #stage;
   #reserved = 0;
   #dropped = 0;
-  #urgent = false;
   #flushers = [];
   #timer;
   #inFlight;
@@ -2066,7 +2059,6 @@ var Processor = class {
       return;
     }
     this.#queue.push(span);
-    if (span.name === RUN_START) this.#urgent = true;
     this.#wake(this.#due() ? 0 : this.#delayMs);
   }
   /** Resolves once the queue is empty and the export in flight has settled. */
@@ -2106,9 +2098,9 @@ var Processor = class {
   #idle() {
     return this.#queue.length === 0 && this.#inFlight === void 0;
   }
-  /** Whether the worker should export without waiting; a record queued goes at once, as a live run's start does. */
+  /** Whether the worker should export without waiting; a record queued goes at once. */
   #due() {
-    return this.#down || this.#flushers.length > 0 || this.#urgent || this.#fences.length > 0 || this.#queue.length >= this.#maxBatchSize;
+    return this.#down || this.#flushers.length > 0 || this.#fences.length > 0 || this.#queue.length >= this.#maxBatchSize;
   }
   // The worker is a timer, never referenced: an idle SDK never keeps the
   // process alive, and a pending one fires no later than the delay.
@@ -2134,7 +2126,6 @@ var Processor = class {
     while ((this.#fences[0] ?? Infinity) <= this.#taken) this.#fences.shift();
     const dropped = this.#dropped;
     this.#dropped = 0;
-    this.#urgent = false;
     if (dropped > 0) {
       this.#warn(`telmoni: the export queue was full; ${dropped} spans were dropped`);
     }
@@ -2433,7 +2424,6 @@ var Opener = class {
     if (typeof rate !== "number" || !(rate > 0 && rate <= 1)) {
       throw new RangeError("sampleRate must be a number above 0 and up to 1");
     }
-    const bounds = boundsOf(options.bounds, this.#warnOnce);
     const sampledOut = rate < 1 && Math.random() >= rate;
     const runId = randomUUID();
     const inherited = { [RUN_ID]: runId, [AGENT]: agent };
@@ -2450,21 +2440,12 @@ var Opener = class {
       [OPERATION]: "invoke_agent",
       [AGENT_NAME]: agent,
       ...inherited,
-      ...bounds,
       [SAMPLE_RATE]: rate,
       ...tagsOf(Object.entries(options.tags ?? {}), this.#warnOnce)
     };
     const parent = context.active();
     const span = this.#start(`invoke_agent ${agent}`, parent, attributes, SpanKind.INTERNAL);
-    const run = new Run(this, span, parent, runId, agent, inherited, sampledOut);
-    const start = startTimeOf(span);
-    const opening = {
-      kind: SpanKind.INTERNAL,
-      attributes: { ...inherited, ...bounds, [SAMPLE_RATE]: rate }
-    };
-    if (start !== void 0) opening.startTime = start;
-    this.#tracer.startSpan(RUN_START, opening, run.context).end(start);
-    return run;
+    return new Run(this, span, parent, runId, agent, inherited, sampledOut);
   }
   /**
    * A run another service opened, continued here under the span the headers
@@ -2534,11 +2515,10 @@ var Opener = class {
    *
    * Its trace is its own, named by the run's id, whatever context is active;
    * each span's id is derived from that id and the span's place in the record.
-   * Its spans are queued whole once built, the run's start first and the
-   * run's own last, and travel in exports of their own, so the same record
-   * sent again is the same bytes, whatever else is sent meanwhile. Throws
-   * `QueueFullError`, queuing nothing, when the export queue has no room for
-   * the whole record.
+   * Its spans are queued whole once built, the run's own last, and travel in
+   * exports of their own, so the same record sent again is the same bytes,
+   * whatever else is sent meanwhile. Throws `QueueFullError`, queuing nothing,
+   * when the export queue has no room for the whole record.
    */
   record(record) {
     const agent = record.agent;
@@ -2617,10 +2597,6 @@ var Opener = class {
     this.#processor.record(runHex, spansIn(items), () => {
       const span = open(`invoke_agent ${record.agent}`, ROOT_CONTEXT, attributes, SpanKind.INTERNAL, record.start);
       const ctx = trace.setSpan(ROOT_CONTEXT, span);
-      const at = hrTimeOf(record.start);
-      open(RUN_START, ctx, { ...inherited, [SAMPLE_RATE]: rate }, SpanKind.INTERNAL, record.start).end(
-        at
-      );
       for (const [item, calls] of items) {
         if (item.type === "step") {
           const step = open(item.name, ctx, inherited, SpanKind.INTERNAL, item.start);
@@ -2660,7 +2636,7 @@ function later(a, b) {
   return a[0] > b[0] || a[0] === b[0] && a[1] > b[1];
 }
 function spansIn(items) {
-  return items.reduce((spans, [, calls]) => spans + 1 + calls.length, 2);
+  return items.reduce((spans, [, calls]) => spans + 1 + calls.length, 1);
 }
 function read(record) {
   const inside = record.inside ?? [];
@@ -2779,35 +2755,9 @@ function usageOf(usage, warnOnce) {
   }
   return out;
 }
-function boundsOf(bounds, warnOnce) {
-  const out = {};
-  if (!isSet(bounds)) return out;
-  const keep = (name, key, number, allowed) => {
-    if (number === void 0) {
-      warnOnce(`run:${name}`, `telmoni: a run's ${name} must be ${allowed}; the run is sent without it`);
-    } else {
-      out[key] = number;
-    }
-  };
-  const fits2 = "a whole number from 1 to 4294967295";
-  if (isSet(bounds.stallAfterSeconds)) {
-    keep("stallAfterSeconds", BOUND_STALL_AFTER_S, whole(bounds.stallAfterSeconds, 1, 2 ** 32), fits2);
-  }
-  if (isSet(bounds.maxSteps)) keep("maxSteps", BOUND_MAX_STEPS, whole(bounds.maxSteps, 1, 2 ** 32), fits2);
-  if (isSet(bounds.maxCostUsd)) {
-    const cost = finite(bounds.maxCostUsd);
-    const above = cost !== void 0 && cost > 0 ? cost : void 0;
-    keep("maxCostUsd", BOUND_MAX_COST_USD, above, "a finite number above 0");
-  }
-  return out;
-}
 function whole(value, least, end) {
   const number = Math.trunc(numberOf(value));
   return Number.isFinite(number) && number >= least && number < end ? number : void 0;
-}
-function finite(value) {
-  const number = numberOf(value);
-  return Number.isFinite(number) ? number : void 0;
 }
 var DECIMAL = /^\s*[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?\s*$/i;
 function numberOf(value) {
@@ -2886,10 +2836,6 @@ function readable([seconds, nanos2]) {
   const after = seconds > 0 || seconds === 0 && nanos2 > 0;
   const within2 = seconds < 18446744073 || seconds === 18446744073 && nanos2 < 709551616;
   return after && within2;
-}
-function startTimeOf(span) {
-  const start = span.startTime;
-  return Array.isArray(start) ? start : void 0;
 }
 function asJson(value) {
   if (typeof value === "string") return value;
