@@ -58,7 +58,7 @@ Cursor's headless CLI (`agent -p`) fires no prompt, reply or `stop` hook, and gi
 
 ## Tokens
 
-Cursor reports a turn's tokens, never a call's, so the turn's model is one model call spanning the turn: `model_id` where Cursor gives it, which names the model as its maker does (`claude-opus-4-7`), else the legacy slug every event carries (`claude-opus-4-7-thinking-max`). The tokens are `stop`'s, else the last reply's. The SDK takes input as the GenAI conventions count it, the cache's reads and writes among it. Cursor's `input_tokens` appears to count them in already: in every payload seen it is larger than the cache's reads, and Langfuse's plugin reads it so. It is taken as given; where it is less than the cache's reads and writes together it cannot hold them, and they are added. Cursor does not document the four fields.
+Cursor reports a turn's tokens, never a call's, so the turn's model is one model call spanning the turn: `model_id` where Cursor gives it, which names the model as its maker does (`claude-opus-4-7`), else the legacy slug every event carries (`claude-opus-4-7-thinking-max`). The tokens are `stop`'s, else the last reply's. The SDK takes input as the GenAI conventions count it, the cache's reads and writes among it. Cursor's `input_tokens` appears to count them in already: in every payload seen it is larger than the cache's reads, and other plugins read it so. It is taken as given; where it is less than the cache's reads and writes together it cannot hold them, and they are added. Cursor does not document the four fields.
 
 ## Times
 
@@ -106,10 +106,10 @@ The SDK is a development dependency, the registry's `telmoni`, bundled at build.
 
 ## Not confirmed
 
-Cursor documents none of these, and none has been seen in a session of the plugin's own: each is how the plugin reads what Cursor's forum and Langfuse's plugin have seen, and a real session should settle it.
+Cursor documents none of these, and none has been seen in a session of the plugin's own: each is how the plugin reads what Cursor's forum and other plugins have seen, and a real session should settle it.
 
-- That `input_tokens` counts the cache's reads and writes in, and `output_tokens` the model's reasoning, as the SDK counts them. In a payload posted to Cursor's forum (3.16.17) the input is larger than the cache's reads, and Langfuse's plugin reads it so; a turn whose cache's reads pass its input would show otherwise.
-- That `afterAgentResponse`, where it fires more than once a turn, carries the turn's tokens so far rather than one reply's: in a session Langfuse recorded (3.20.10) it fired once a turn, two replies in it, so the question did not arise there.
+- That `input_tokens` counts the cache's reads and writes in, and `output_tokens` the model's reasoning, as the SDK counts them. In a payload posted to Cursor's forum (3.16.17) the input is larger than the cache's reads, and other plugins read it so; a turn whose cache's reads pass its input would show otherwise.
+- That `afterAgentResponse`, where it fires more than once a turn, carries the turn's tokens so far rather than one reply's: in a session another plugin recorded (3.20.10) it fired once a turn, two replies in it, so the question did not arise there.
 - That every MCP tool's `postToolUse` names it `MCP:<tool>`: the documentation gives the form for the matchers, and says so of the tools of a cloud agent's HTTP MCP servers. The name is kept as Cursor gives it.
 - Where a subagent's own calls go once it ends: Cursor runs them under a conversation of their own (Cursor's staff, of 3.7.27, still so on 2026-09-25); whether a `stop` ever fires there, which would send them as a run of that conversation.
 - That a detached copy outlives a cloud agent's VM long enough to send the turn that ended last; a cloud agent fires no `sessionStart` or `sessionEnd`.
