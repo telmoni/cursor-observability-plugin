@@ -83,10 +83,11 @@ function streamed(chunks: Buffer[], size: number): Promise<string> {
 }
 
 /**
- * What Cursor wrote on stdin, read to its end straight from the file descriptor: `process.stdin`, a socket's stream,
- * costs a hook Cursor waits on more than the rest of its work, and is used only where the pipe would block.
+ * What Cursor wrote on stdin, read whole from the descriptor once `process.stdin` exists, unread: libuv then sets the
+ * descriptor non-blocking, so an empty read answers EAGAIN and the streamed read bounds a wait on a pipe left open.
  */
 function readInput(): Promise<string> {
+  process.stdin.pause();
   const chunks: Buffer[] = [];
   let size = 0;
   const buffer = Buffer.allocUnsafe(64 * 1024);
