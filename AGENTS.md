@@ -24,8 +24,7 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 | `tests/` | The suites; `tests/fixtures/` holds synthetic conversations written from Cursor's documented payloads. |
 | `.cursor-plugin/plugin.json`, `hooks/hooks.json`, `dist/` | The repository as a Cursor plugin: the manifest, its `version` the package's; the hooks file, the eight events each running the bundle at `${CURSOR_PLUGIN_ROOT}`; and the bundle itself, committed. |
 | `ARCHITECTURE.md` | How the plugin works, and why. |
-| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`. |
-| [`telmoni/docs`](https://github.com/telmoni/docs) | Sibling repo, checked out as `../docs`: the book, whose `api/coding-agents.mdx` documents this plugin. |
+| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`, and the book, whose `web/content/docs/api/coding-agents.mdx` documents this plugin. |
 
 ## Commands
 - **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`). The suites run the built binary, under a home folder of their own.
@@ -52,5 +51,5 @@ The Cursor plugin for Telmoni ([`telmoni/cursor-observability-plugin`](https://g
 ## Definition of Done
 - [ ] `make check` passes, or the failure is reported verbatim.
 - [ ] No key, no text from a conversation and no path reaches a log, a spool, a record, a fixture or a commit.
-- [ ] `ARCHITECTURE.md` and `README.md` say what changed, and the book's `api/coding-agents.mdx` (`../docs`) is fixed or named.
+- [ ] `ARCHITECTURE.md` and `README.md` say what changed, and the book's `api/coding-agents.mdx` (`../telmoni/web/content/docs`) is fixed or named.
 - [ ] Nothing that needs asking happened unasked (dependencies, publishing, live calls, other repos, commits).
