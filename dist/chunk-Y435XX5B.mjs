@@ -1,6 +1,6 @@
 import {
   isEvent
-} from "./chunk-QMSA2DQT.mjs";
+} from "./chunk-O4E2KSHU.mjs";
 
 // src/spool.ts
 import {

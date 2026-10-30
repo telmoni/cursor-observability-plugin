@@ -32,6 +32,8 @@ const REFUSED = /^telmoni: export refused with (?:400|402|413|500) /;
 export interface Destination {
   endpoint: string | undefined;
   apiKey: string;
+  /** The editor that ran the turn, the run's release. */
+  release?: string;
 }
 
 function spansOf(record: RunRecord): number {
@@ -54,7 +56,7 @@ export class Sender {
   constructor(destination: Destination, log: (line: string) => void) {
     this.#log = log;
     this.#telmoni = new Telmoni(
-      { endpoint: destination.endpoint, apiKey: destination.apiKey },
+      { endpoint: destination.endpoint, apiKey: destination.apiKey, ...(destination.release === undefined ? {} : { release: destination.release }) },
       {
         warn: (message) => void this.#warnings.push(message),
         // Unbounded: past the SDK's own 2,048 spans, recordRun throws QueueFullError and the turn is skipped whole.

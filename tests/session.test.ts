@@ -138,6 +138,20 @@ describe('a copy', () => {
     expect(readSpool(settings.dir, IDE).length).toBeGreaterThan(0);
   });
 
+  it('sends each turn with the editor that ran it as its release', async () => {
+    const steps = fixture('ide');
+    const [first] = stops(steps);
+    through(steps, 0, first!);
+    const releases: Array<string | undefined> = [];
+    await hook('stop', IDE, {}, {
+      sender: (destination) => {
+        releases.push(destination.release);
+        return { send: () => Promise.resolve(true), close: () => Promise.resolve() };
+      },
+    });
+    expect(releases).toEqual(['3.16.17']);
+  });
+
   it('leaves the turn still running to a later hook', async () => {
     const steps = fixture('ide');
     const [first] = stops(steps);

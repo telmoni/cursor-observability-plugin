@@ -61,6 +61,8 @@ export interface Line {
   output_tokens?: number;
   cache_read_tokens?: number;
   cache_write_tokens?: number;
+  /** The editor that ran the turn, sent as its release. */
+  cursor_version?: string;
 }
 
 type Check = (value: unknown) => unknown;
@@ -130,7 +132,9 @@ const KEPT: Record<CursorEvent, Record<string, Check>> = {
   },
 };
 
-const EVERY: Record<string, Check> = { generation_id: generation, model, model_id: model };
+// The editor's version, a plain version or nothing, sent as the turn's release.
+const version = matching(/^[\w.+-]{1,64}$/);
+const EVERY: Record<string, Check> = { generation_id: generation, model, model_id: model, cursor_version: version };
 
 /** An event Cursor handed a hook: the conversation it belongs to, and the line kept of it. */
 export interface Received {

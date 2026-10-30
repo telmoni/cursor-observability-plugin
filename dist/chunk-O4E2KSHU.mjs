@@ -59,7 +59,8 @@ var KEPT = {
     final_status: status
   }
 };
-var EVERY = { generation_id: generation, model, model_id: model };
+var version = matching(/^[\w.+-]{1,64}$/);
+var EVERY = { generation_id: generation, model, model_id: model, cursor_version: version };
 function received(event, raw, at, id) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return void 0;
   const fields = raw;

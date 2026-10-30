@@ -4,11 +4,11 @@ import {
   registersProject,
   registersUser,
   settingsFrom
-} from "./chunk-GLQUV2EB.mjs";
+} from "./chunk-UVWN2HCW.mjs";
 import {
   append,
   sweep
-} from "./chunk-3CZQYDNL.mjs";
+} from "./chunk-Y435XX5B.mjs";
 import {
   answerFor,
   isClosing,
@@ -17,7 +17,7 @@ import {
   kindOf,
   log,
   received
-} from "./chunk-QMSA2DQT.mjs";
+} from "./chunk-O4E2KSHU.mjs";
 
 // src/cli.ts
 import { homedir } from "os";
@@ -158,7 +158,7 @@ async function copy(handedOff, env) {
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-BVXNUAGQ.mjs"), import("./send-GLYPC4OF.mjs")]);
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-M7XI7A53.mjs"), import("./send-LWC3BJQF.mjs")]);
     const deps = (prefix) => {
       const said = (line) => log(settings.dir, `${prefix} ${line}`);
       return { sender: (destination) => new Sender(destination, said), log: said };
@@ -228,7 +228,7 @@ if (command === "hook") {
   await hook(args, SCRIPT);
   process.exitCode = 0;
 } else if ((command === "setup" || command === "remove") && args.every((arg) => arg === "--project")) {
-  const { askKey, nodeOf, remove, setup } = await import("./setup-TFDJ6BH3.mjs");
+  const { askKey, nodeOf, remove, setup } = await import("./setup-5SKTNQCM.mjs");
   const options = {
     project: args.includes("--project"),
     home: homedir(),

@@ -2,10 +2,10 @@ import {
   compact,
   readSpool,
   recover
-} from "./chunk-3CZQYDNL.mjs";
+} from "./chunk-Y435XX5B.mjs";
 import {
   kindOf
-} from "./chunk-QMSA2DQT.mjs";
+} from "./chunk-O4E2KSHU.mjs";
 
 // src/record.ts
 import { createHash } from "crypto";
@@ -426,7 +426,9 @@ async function sync(input, settings, deps, waitFor) {
       const last = turn.lines.at(-1).at;
       const sessionEnd = sessionEnds.find((line) => line.at >= last);
       const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
-      if (record !== void 0 && !await sendAlone(deps, destination, record, refused)) {
+      const release = [...turn.lines].reverse().find((line) => line.cursor_version !== void 0)?.cursor_version;
+      const to = release === void 0 ? destination : { ...destination, release };
+      if (record !== void 0 && !await sendAlone(deps, to, record, refused)) {
         kept = true;
         break;
       }

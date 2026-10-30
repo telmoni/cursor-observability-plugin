@@ -22,6 +22,7 @@ const KEPT = [
   'id',
   'at',
   'hook_event_name',
+  'cursor_version',
   'generation_id',
   'model',
   'model_id',
@@ -62,7 +63,9 @@ describe('what a hook keeps', () => {
   it('keeps each kind of event as Cursor named its values', () => {
     const lines = replay(fixture('ide'), dir.path);
     const of = (event: string, index = 0) => lines.filter((line) => line.hook_event_name === event)[index]!;
-    const strip = ({ id: _id, at: _at, ...rest }: Record<string, unknown>) => rest;
+    const strip = ({ id: _id, at: _at, cursor_version: _version, ...rest }: Record<string, unknown>) => rest;
+    // Every event names the editor that ran it, kept for the turn's release.
+    expect(new Set(lines.map((line) => line.cursor_version))).toEqual(new Set(['3.16.17']));
     expect(strip({ ...of('sessionStart') })).toEqual({
       hook_event_name: 'sessionStart',
       model: 'claude-opus-4-7-thinking-max',
@@ -118,6 +121,7 @@ describe('what a hook keeps', () => {
         duration: -5,
         failure_type: 'SENTINEL',
         is_interrupt: 'yes',
+        cursor_version: '3.16 (build /home/person)',
       },
       BASE,
       'line-1',

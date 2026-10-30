@@ -136,7 +136,10 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps, wai
       const last = turn.lines.at(-1)!.at;
       const sessionEnd = sessionEnds.find((line) => line.at >= last);
       const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
-      if (record !== undefined && !(await sendAlone(deps, destination, record, refused))) {
+      // The editor that ran the turn: its latest line that names one.
+      const release = [...turn.lines].reverse().find((line) => line.cursor_version !== undefined)?.cursor_version;
+      const to = release === undefined ? destination : { ...destination, release };
+      if (record !== undefined && !(await sendAlone(deps, to, record, refused))) {
         kept = true;
         break;
       }

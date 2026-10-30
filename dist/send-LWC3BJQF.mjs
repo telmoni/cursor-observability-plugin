@@ -28,7 +28,7 @@ var Sender = class {
   constructor(destination, log) {
     this.#log = log;
     this.#telmoni = new Telmoni(
-      { endpoint: destination.endpoint, apiKey: destination.apiKey },
+      { endpoint: destination.endpoint, apiKey: destination.apiKey, ...destination.release === void 0 ? {} : { release: destination.release } },
       {
         warn: (message) => void this.#warnings.push(message),
         // Unbounded: past the SDK's own 2,048 spans, recordRun throws QueueFullError and the turn is skipped whole.

@@ -55,7 +55,7 @@ Each turn — from your prompt to the agent's stop — is a run of the agent `cu
 - each tool call, by Cursor's name for the tool (`Shell`, `Read`, `MCP:create_issue`), with its time, failed where it failed (`ToolError`, `TimeoutError`, `PermissionDenied`) and cancelled where you interrupted it;
 - each subagent, a step named by its kind (`subagent explore`), though not the calls it made: Cursor runs those under a conversation of their own, with nothing naming the one that started it.
 
-A turn you stop is cancelled, and one that ends in error failed. In Cursor's headless CLI (`agent -p`), which reports no prompt and no stop, a session's work is its turn.
+The run's release is the version of Cursor that ran it. A turn you stop is cancelled, and one that ends in error failed. In Cursor's headless CLI (`agent -p`), which reports no prompt and no stop, a session's work is its turn.
 
 Cursor hands its hooks your email, your prompts and its replies, each tool's input and output, and the folders you work in. The plugin reads none of it: it keeps a short list of names, numbers and flags from each event, and writes nothing else down.
 
