@@ -158,7 +158,7 @@ async function copy(handedOff, env) {
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-IBKZ3J4Y.mjs"), import("./send-LWC3BJQF.mjs")]);
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-MEO3VKJC.mjs"), import("./send-LWC3BJQF.mjs")]);
     const deps = (prefix) => {
       const said = (line) => log(settings.dir, `${prefix} ${line}`);
       return { sender: (destination) => new Sender(destination, said), log: said };
@@ -228,7 +228,7 @@ if (command === "hook") {
   await hook(args, SCRIPT);
   process.exitCode = 0;
 } else if ((command === "setup" || command === "remove") && args.every((arg) => arg === "--project")) {
-  const { askKey, nodeOf, remove, setup } = await import("./setup-UXYZA2IC.mjs");
+  const { askKey, nodeOf, remove, setup } = await import("./setup-FNS7KPA2.mjs");
   const options = {
     project: args.includes("--project"),
     home: homedir(),

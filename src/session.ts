@@ -3,6 +3,8 @@
  * their lines taken out of the spool, so a turn is sent once and none is skipped.
  */
 
+import { createHash } from 'node:crypto';
+
 import type { RunRecord } from 'telmoni';
 
 import type { ClosingEvent } from './input.js';
@@ -11,7 +13,7 @@ import { recordOf } from './record.js';
 import type { Destination } from './send.js';
 import type { Settings } from './settings.js';
 import { compact, readSpool, recover } from './spool.js';
-import { type ConversationState, SENT_KEPT, leftOf, markLeft, readState, withLock, writeState } from './state.js';
+import { type ConversationState, SENT_KEPT, leftOf, markLeft, readLeft, readState, withLock, writeState } from './state.js';
 import { type Turn, byTime, cut, ended, hasWork } from './turns.js';
 
 export interface HookInput {
@@ -53,10 +55,24 @@ async function sendAlone(deps: Deps, destination: Destination, record: RunRecord
   }
 }
 
-/** What other conversations' session ends left, the longest waiting first, until one is still not taken. */
+/**
+ * Where a key sends, as a digest of the endpoint and the key: what a conversation's left turns are held to, so another
+ * conversation's copy sends them nowhere they were not meant to go.
+ */
+function destinationOf(settings: Pick<Settings, 'apiKey' | 'endpoint'>): string {
+  return createHash('sha256').update(`${settings.endpoint ?? ''}\n${settings.apiKey ?? ''}`).digest('hex').slice(0, 16);
+}
+
+/**
+ * What other conversations' session ends left, the longest waiting first, until one is still not taken: only where that
+ * conversation's key sent it, and only its turns begun before that end, so one reopened since keeps its live turn.
+ */
 export async function sendLeft(own: string, settings: Settings, depsFor: (conversationId: string) => Deps): Promise<void> {
+  const destination = destinationOf(settings);
   for (const other of leftOf(settings.dir, own)) {
-    if (!(await sync({ event: 'sessionEnd', conversationId: other }, settings, depsFor(other), 0))) return;
+    const left = readLeft(settings.dir, other);
+    if (left === undefined || left.destination !== destination) continue;
+    if (!(await sync({ event: 'sessionEnd', conversationId: other, at: left.at }, settings, depsFor(other), 0))) return;
   }
 }
 
@@ -103,7 +119,7 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps, wai
     const lines = readSpool(settings.dir, input.conversationId);
     if (lines.length === 0) {
       reached = true;
-      if (input.event === 'sessionEnd') markLeft(settings.dir, input.conversationId, false);
+      markLeft(settings.dir, input.conversationId, undefined);
       return;
     }
     const sent = new Set(state.sent);
@@ -154,8 +170,13 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps, wai
       }
     }
     await compact(settings.dir, input.conversationId, spent);
-    // A session's end is the conversation's last hook: what it could not send waits on another conversation's copy.
-    if (input.event === 'sessionEnd') markLeft(settings.dir, input.conversationId, kept);
+    // A session's end is the conversation's last hook: what it could not send waits on another conversation's copy,
+    // its turns begun before that end alone; a stop of its own, the conversation reopened, sends them itself.
+    if (input.event === 'sessionEnd' && kept) {
+      markLeft(settings.dir, input.conversationId, { at: endedAt ?? Date.now(), destination: destinationOf(settings) });
+    } else if (!kept) {
+      markLeft(settings.dir, input.conversationId, undefined);
+    }
     reached = !kept;
   });
   if (!locked && waitFor !== 0) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");

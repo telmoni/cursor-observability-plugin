@@ -73,12 +73,17 @@ function shown(path, home) {
   return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }
 function targetOf(path) {
-  if (existsSync(path)) return realpathSync(path);
-  try {
-    if (lstatSync(path).isSymbolicLink()) return resolve(dirname(path), readlinkSync(path));
-  } catch {
+  let at = path;
+  for (let hops = 0; hops < 40; hops++) {
+    if (existsSync(at)) return realpathSync(at);
+    try {
+      if (!lstatSync(at).isSymbolicLink()) return at;
+      at = resolve(realpathSync(dirname(at)), readlinkSync(at));
+    } catch {
+      return at;
+    }
   }
-  return path;
+  return at;
 }
 function readText(path) {
   try {
@@ -182,7 +187,7 @@ async function setup(options) {
     );
     return 1;
   }
-  const endpoint = options.env["TELMONI_ENDPOINT"]?.trim() || saved.endpoint;
+  const endpoint = options.env["TELMONI_ENDPOINT"]?.trim() || (apiKey === saved.apiKey ? saved.endpoint : void 0);
   const refused = endpoint === void 0 ? void 0 : await refusalOf(endpoint);
   if (refused !== void 0) {
     print(`TELMONI_ENDPOINT is not one the SDK sends to: ${refused}. Nothing was changed.`);

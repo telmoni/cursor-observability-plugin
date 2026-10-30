@@ -102,15 +102,22 @@ function shown(path: string, home: string): string {
   return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }
 
-/** The file to write: a link's target, so a `hooks.json` kept among someone's dotfiles stays there, though it is not made yet. */
+/**
+ * The file to write: a link's target, so a `hooks.json` kept among someone's dotfiles stays there, though it is not
+ * made yet, each link of a chain followed from the folder it really sits in.
+ */
 function targetOf(path: string): string {
-  if (existsSync(path)) return realpathSync(path);
-  try {
-    if (lstatSync(path).isSymbolicLink()) return resolve(dirname(path), readlinkSync(path));
-  } catch {
-    // Nothing there at all.
+  let at = path;
+  for (let hops = 0; hops < 40; hops++) {
+    if (existsSync(at)) return realpathSync(at);
+    try {
+      if (!lstatSync(at).isSymbolicLink()) return at;
+      at = resolve(realpathSync(dirname(at)), readlinkSync(at));
+    } catch {
+      return at;
+    }
   }
-  return path;
+  return at;
 }
 
 /** What is in `path`, or nothing where it does not exist. */
@@ -240,7 +247,8 @@ export async function setup(options: Options): Promise<number> {
     );
     return 1;
   }
-  const endpoint = options.env['TELMONI_ENDPOINT']?.trim() || saved.endpoint;
+  // A key goes only to the endpoint named beside it: the saved endpoint stays with the saved key alone.
+  const endpoint = options.env['TELMONI_ENDPOINT']?.trim() || (apiKey === saved.apiKey ? saved.endpoint : undefined);
   const refused = endpoint === undefined ? undefined : await refusalOf(endpoint);
   if (refused !== undefined) {
     print(`TELMONI_ENDPOINT is not one the SDK sends to: ${refused}. Nothing was changed.`);

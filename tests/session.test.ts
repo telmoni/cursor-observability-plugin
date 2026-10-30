@@ -127,6 +127,30 @@ describe('a copy', () => {
     expect(readSpool(settings.dir, IDE)).toEqual([]);
   });
 
+  it('sends of a conversation reopened since its end only the turns begun before it, its live turn left whole', async () => {
+    const ide = fixture('ide');
+    through(ide, 0, ide.length);
+    answers = [false];
+    await hook('sessionEnd', IDE);
+    // Reopened: a new turn under way, begun long after the end, no stop yet.
+    const later = BASE + 10 * 60 * 60 * 1000;
+    append(settings.dir, IDE, { id: 'live-1', at: later, hook_event_name: 'beforeSubmitPrompt', generation_id: 'live-turn' });
+    append(settings.dir, IDE, { id: 'live-2', at: later + 1000, hook_event_name: 'postToolUse', generation_id: 'live-turn', tool_name: 'Shell' });
+    await sendLeft(HEADLESS, settings, () => depsOf());
+    expect(sent.filter((run) => run.sessionId === IDE)).toHaveLength(3);
+    expect(readSpool(settings.dir, IDE).map((line) => line.id)).toEqual(['live-1', 'live-2']);
+  });
+
+  it('sends what a session’s end left only where that conversation’s key sent', async () => {
+    const ide = fixture('ide');
+    through(ide, 0, ide.length);
+    answers = [false];
+    await hook('sessionEnd', IDE);
+    await sendLeft(HEADLESS, { ...settings, endpoint: 'https://another.example' }, () => depsOf());
+    expect(sent).toEqual([]);
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(true);
+  });
+
   it('keeps what a session’s end left while the platform stays away', async () => {
     const ide = fixture('ide');
     through(ide, 0, ide.length);

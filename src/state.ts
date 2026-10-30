@@ -29,10 +29,28 @@ export const SENT_KEPT = 64;
  * Marks, or unmarks, a conversation whose session's end met a turn the platform did not take: that end is its last hook,
  * so the next copy of any conversation sends what it left.
  */
-export function markLeft(dir: string, conversationId: string, left: boolean): void {
+export function markLeft(dir: string, conversationId: string, left: Left | undefined): void {
   const path = join(dir, `${conversationId}.left`);
-  if (left) writeFileSync(path, '', { mode: 0o600 });
+  if (left !== undefined) writeFileSync(path, JSON.stringify(left), { mode: 0o600 });
   else rmSync(path, { force: true });
+}
+
+/** When a conversation's session ended, and where its key sends (`destinationOf`). */
+export interface Left {
+  at: number;
+  destination: string;
+}
+
+/** What a conversation's session end left, or nothing where its marker cannot be read. */
+export function readLeft(dir: string, conversationId: string): Left | undefined {
+  try {
+    const value = JSON.parse(readFileSync(join(dir, `${conversationId}.left`), 'utf8')) as Partial<Left> | null;
+    return value !== null && typeof value.at === 'number' && Number.isFinite(value.at) && typeof value.destination === 'string'
+      ? { at: value.at, destination: value.destination }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The conversations other than `except` whose session ended with turns not taken, the longest waiting first. */

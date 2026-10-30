@@ -7,6 +7,9 @@ import {
   kindOf
 } from "./chunk-65DK5VQ4.mjs";
 
+// src/session.ts
+import { createHash as createHash2 } from "crypto";
+
 // src/record.ts
 import { createHash } from "crypto";
 
@@ -249,8 +252,16 @@ import { setTimeout as sleep } from "timers/promises";
 var SENT_KEPT = 64;
 function markLeft(dir, conversationId, left) {
   const path = join(dir, `${conversationId}.left`);
-  if (left) writeFileSync(path, "", { mode: 384 });
+  if (left !== void 0) writeFileSync(path, JSON.stringify(left), { mode: 384 });
   else rmSync(path, { force: true });
+}
+function readLeft(dir, conversationId) {
+  try {
+    const value = JSON.parse(readFileSync(join(dir, `${conversationId}.left`), "utf8"));
+    return value !== null && typeof value.at === "number" && Number.isFinite(value.at) && typeof value.destination === "string" ? { at: value.at, destination: value.destination } : void 0;
+  } catch {
+    return void 0;
+  }
 }
 function leftOf(dir, except) {
   let names = [];
@@ -357,9 +368,16 @@ async function sendAlone(deps, destination, record, refused) {
     await sender.close();
   }
 }
+function destinationOf(settings) {
+  return createHash2("sha256").update(`${settings.endpoint ?? ""}
+${settings.apiKey ?? ""}`).digest("hex").slice(0, 16);
+}
 async function sendLeft(own, settings, depsFor) {
+  const destination = destinationOf(settings);
   for (const other of leftOf(settings.dir, own)) {
-    if (!await sync({ event: "sessionEnd", conversationId: other }, settings, depsFor(other), 0)) return;
+    const left = readLeft(settings.dir, other);
+    if (left === void 0 || left.destination !== destination) continue;
+    if (!await sync({ event: "sessionEnd", conversationId: other, at: left.at }, settings, depsFor(other), 0)) return;
   }
 }
 async function sync(input, settings, deps, waitFor) {
@@ -397,7 +415,7 @@ async function sync(input, settings, deps, waitFor) {
     const lines = readSpool(settings.dir, input.conversationId);
     if (lines.length === 0) {
       reached = true;
-      if (input.event === "sessionEnd") markLeft(settings.dir, input.conversationId, false);
+      markLeft(settings.dir, input.conversationId, void 0);
       return;
     }
     const sent = new Set(state.sent);
@@ -442,7 +460,11 @@ async function sync(input, settings, deps, waitFor) {
       }
     }
     await compact(settings.dir, input.conversationId, spent);
-    if (input.event === "sessionEnd") markLeft(settings.dir, input.conversationId, kept);
+    if (input.event === "sessionEnd" && kept) {
+      markLeft(settings.dir, input.conversationId, { at: endedAt ?? Date.now(), destination: destinationOf(settings) });
+    } else if (!kept) {
+      markLeft(settings.dir, input.conversationId, void 0);
+    }
     reached = !kept;
   });
   if (!locked && waitFor !== 0) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");

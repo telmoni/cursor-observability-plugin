@@ -135,6 +135,14 @@ describe('setup', () => {
     expect(printed.join('\n')).not.toContain(KEY);
   });
 
+  it('never keeps a key from the environment beside the endpoint the file held for another', async () => {
+    mkdirSync(cursor(), { recursive: true });
+    writeFileSync(keyFile(), JSON.stringify({ apiKey: `tm_${'Zz9yX8wV7u'.repeat(4)}K-_`, endpoint: 'https://self-hosted.example' }));
+    chmodSync(keyFile(), 0o600);
+    expect(await setup(options({ env: { TELMONI_API_KEY: KEY } }))).toBe(0);
+    expect(read(keyFile())).toEqual({ apiKey: KEY });
+  });
+
   it.skipIf(process.platform === 'win32')('changes nothing where the key file is one the hooks would not read, so an endpoint in it is never lost', async () => {
     writeOthers();
     const before = readFileSync(hooksFile(), 'utf8');
