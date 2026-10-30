@@ -2,10 +2,10 @@ import {
   compact,
   readSpool,
   recover
-} from "./chunk-Y435XX5B.mjs";
+} from "./chunk-XPQ2DAB3.mjs";
 import {
   kindOf
-} from "./chunk-O4E2KSHU.mjs";
+} from "./chunk-65DK5VQ4.mjs";
 
 // src/record.ts
 import { createHash } from "crypto";
@@ -106,7 +106,6 @@ function ended(turns, event, endedAt) {
 var AGENT = "cursor";
 var PROVIDER = "cursor";
 var NAMESPACE = "4a535453-1668-44c0-9fb8-637aa6591fae";
-var SLACK_MS = 2e3;
 var NAME_MAX = 145;
 var MODEL_MAX = 128;
 function fit(name, max) {
@@ -116,9 +115,10 @@ function fit(name, max) {
 var PATH = /^(?:[/\\]|~(?:[/\\]|$)|\.{1,2}[/\\]|[A-Za-z]:[/\\]|file:)/i;
 var MODEL_FILE = /[/\\]([^/\\]+\.(?:gguf|ggml|bin|safetensors|llamafile))$/i;
 function modelOf(name) {
-  const file = MODEL_FILE.exec(name.trim())?.[1];
+  const trimmed = name.trim();
+  const file = MODEL_FILE.exec(trimmed)?.[1];
   if (file !== void 0) return fit(file, MODEL_MAX);
-  return PATH.test(name.trim()) ? "unknown" : fit(name, MODEL_MAX);
+  return PATH.test(trimmed) ? "unknown" : fit(trimmed, MODEL_MAX);
 }
 function uuid5(namespace, name) {
   const hash = createHash("sha1").update(Buffer.from(namespace.replaceAll("-", ""), "hex")).update(name, "utf8").digest();
@@ -183,7 +183,7 @@ function takeTask(tools, at) {
   for (let index = 0; index < tools.length; index++) {
     const tool = tools[index];
     if (tool.name.toLowerCase() !== "task") continue;
-    if (at < Number(tool.start) - SLACK_MS || at > Number(tool.end) + SLACK_MS) continue;
+    if (at < Number(tool.start) - TASK_SLACK_MS || at > Number(tool.end) + TASK_SLACK_MS) continue;
     if (best === -1 || Math.abs(Number(tool.end) - at) < Math.abs(Number(tools[best].end) - at)) best = index;
   }
   return best === -1 ? void 0 : tools.splice(best, 1)[0];

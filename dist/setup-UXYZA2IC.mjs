@@ -6,10 +6,10 @@ import {
   readKeyFile,
   withOurs,
   withoutOursIn
-} from "./chunk-QBFVAX3X.mjs";
+} from "./chunk-2OGJLPD5.mjs";
 import {
   EVENTS
-} from "./chunk-O4E2KSHU.mjs";
+} from "./chunk-65DK5VQ4.mjs";
 import {
   Telmoni
 } from "./chunk-FCY6IAVY.mjs";
@@ -23,13 +23,14 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync
 } from "fs";
-import { delimiter, dirname, isAbsolute, join, sep } from "path";
+import { delimiter, dirname, isAbsolute, join, resolve, sep } from "path";
 var KEY = /^tm_[A-Za-z0-9_-]{43}$/;
 async function refusalOf(endpoint) {
   let client;
@@ -72,7 +73,12 @@ function shown(path, home) {
   return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }
 function targetOf(path) {
-  return existsSync(path) ? realpathSync(path) : path;
+  if (existsSync(path)) return realpathSync(path);
+  try {
+    if (lstatSync(path).isSymbolicLink()) return resolve(dirname(path), readlinkSync(path));
+  } catch {
+  }
+  return path;
 }
 function readText(path) {
   try {
@@ -111,6 +117,13 @@ function readFound(path) {
   } catch {
     return void 0;
   }
+}
+function bare(config) {
+  if (config === void 0 || typeof config === "string") return config;
+  const hooks = Object.fromEntries(Object.entries(config.hooks ?? {}).filter(([, entries]) => !(Array.isArray(entries) && entries.length === 0)));
+  const others = Object.keys(config).filter((key) => key !== "version" && key !== "hooks");
+  if (Object.keys(hooks).length === 0 && others.length === 0) return void 0;
+  return { ...config, hooks };
 }
 function same(a, b) {
   if (a === b) return true;
@@ -198,7 +211,7 @@ function remove(options) {
   if (config !== void 0) {
     const left = withoutOursIn(config);
     const found = readFound(kept);
-    if (found !== void 0 && same(left, leftOf(found))) writeThrough(file, found);
+    if (found !== void 0 && same(bare(left), bare(leftOf(found)))) writeThrough(file, found);
     else if (left === void 0 && !lstatSync(file).isSymbolicLink()) rmSync(file, { force: true });
     else writeHooks(file, left ?? { version: 1, hooks: {} });
   }
@@ -231,7 +244,7 @@ function askKey(saved) {
   input.setRawMode(true);
   input.setEncoding("utf8");
   input.resume();
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     let value = "";
     const done = () => {
       input.removeListener("data", onData);
@@ -243,7 +256,7 @@ function askKey(saved) {
       for (const character of chunk) {
         if (character === "\r" || character === "\n" || character === "") {
           done();
-          resolve(value);
+          resolve2(value);
           return;
         }
         if (character === "") {

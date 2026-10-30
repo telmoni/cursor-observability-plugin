@@ -540,6 +540,13 @@ describe('the spool', () => {
     expect(said).toEqual(['old: 1 lines of a conversation untouched for a week deleted, unsent']);
   });
 
+  it('keeps of a line read back only what a hook would have kept, checked again field by field', () => {
+    mkdirSync(settings.dir, { recursive: true, mode: 0o700 });
+    const planted = { id: 'l1', at: BASE, hook_event_name: 'postToolUse', tool_name: 'Shell: cat /home/person/secret', model: 'm', prompt: 'PLANTED' };
+    writeFileSync(join(settings.dir, 'c.jsonl'), `${JSON.stringify(planted)}\n${JSON.stringify({ id: 'l2', at: 'then', hook_event_name: 'stop' })}\n`, { mode: 0o600 });
+    expect(readSpool(settings.dir, 'c')).toEqual([{ id: 'l1', at: BASE, hook_event_name: 'postToolUse', model: 'm' }]);
+  });
+
   it('reads a line once though a compaction cut short wrote it twice', () => {
     mkdirSync(settings.dir, { recursive: true });
     const text = `${JSON.stringify(lineAt('a'))}\n${JSON.stringify(lineAt('a'))}\nnot json\n{"id":"torn"`;

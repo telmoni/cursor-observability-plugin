@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -29,6 +29,9 @@ const FOUND = [
   '{\n  "version": 1,\n  "hooks": {\n    "afterFileEdit": [{ "command": "./hooks/format.sh" }],\n    "stop": [{ "command": "./audit.sh", "loop_limit": 10 }]\n  }\n}\n',
   JSON.stringify(OTHERS, null, 4),
   '{"version":1,"hooks":{}}',
+  // An event the person kept with an empty list: setup's entry in it takes it, and remove puts it back.
+  '{"version":1,"hooks":{"stop":[]}}',
+  '{"hooks":{"postToolUse":[],"afterFileEdit":[{"command":"./x.sh"}]}}',
 ];
 
 let home: { path: string; remove: () => void };
@@ -178,6 +181,16 @@ describe('setup', () => {
     expect(readFileSync(join(dotfiles, 'hooks.json'), 'utf8')).toContain('telmoni-cursor-observability');
     remove(options());
     expect(read(join(dotfiles, 'hooks.json'))).toEqual(OTHERS);
+  });
+
+  it('writes through a link that names no file yet, rather than put a file in the link’s place', async () => {
+    const dotfiles = join(home.path, 'dotfiles');
+    mkdirSync(dotfiles);
+    mkdirSync(cursor());
+    symlinkSync(join(dotfiles, 'hooks.json'), hooksFile());
+    await setup(options());
+    expect(lstatSync(hooksFile()).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(dotfiles, 'hooks.json'), 'utf8')).toContain('telmoni-cursor-observability');
   });
 
   it('leaves a link it emptied pointing at a file, rather than at nothing', async () => {

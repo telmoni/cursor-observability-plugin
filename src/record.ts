@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { ModelCallRecord, RecordOutcome, RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 
 import type { Line } from './input.js';
-import { type Turn, isSessionLine, sessionEndOf, stopOf } from './turns.js';
+import { TASK_SLACK_MS, type Turn, isSessionLine, sessionEndOf, stopOf } from './turns.js';
 
 export const AGENT = 'cursor';
 
@@ -17,9 +17,6 @@ export const PROVIDER = 'cursor';
 
 /** The plugin's own namespace for run ids, so no other tool's ids can meet them. */
 const NAMESPACE = '4a535453-1668-44c0-9fb8-637aa6591fae';
-
-/** How far outside a `Task` call's span a subagent's stop may fall and still be that call's work. */
-const SLACK_MS = 2_000;
 
 /** Ingest's caps, as the SDK's: a tool's name to 145 characters, a model's to 128, cut to fit, since past either the SDK refuses the whole turn. */
 const NAME_MAX = 145;
@@ -39,9 +36,10 @@ const MODEL_FILE = /[/\\]([^/\\]+\.(?:gguf|ggml|bin|safetensors|llamafile))$/i;
 
 /** A model's name as Cursor gives it, cut to ingest's cap: a model file's own name for its path, `unknown` for any other path. */
 function modelOf(name: string): string {
-  const file = MODEL_FILE.exec(name.trim())?.[1];
+  const trimmed = name.trim();
+  const file = MODEL_FILE.exec(trimmed)?.[1];
   if (file !== undefined) return fit(file, MODEL_MAX);
-  return PATH.test(name.trim()) ? 'unknown' : fit(name, MODEL_MAX);
+  return PATH.test(trimmed) ? 'unknown' : fit(trimmed, MODEL_MAX);
 }
 
 /** A version 5 UUID (RFC 9562): the same turn always gets the same run id. */
@@ -138,7 +136,7 @@ function takeTask(tools: ToolCallRecord[], at: number): ToolCallRecord | undefin
   for (let index = 0; index < tools.length; index++) {
     const tool = tools[index]!;
     if (tool.name.toLowerCase() !== 'task') continue;
-    if (at < Number(tool.start) - SLACK_MS || at > Number(tool.end) + SLACK_MS) continue;
+    if (at < Number(tool.start) - TASK_SLACK_MS || at > Number(tool.end) + TASK_SLACK_MS) continue;
     if (best === -1 || Math.abs(Number(tool.end) - at) < Math.abs(Number(tools[best]!.end) - at)) best = index;
   }
   return best === -1 ? undefined : tools.splice(best, 1)[0];

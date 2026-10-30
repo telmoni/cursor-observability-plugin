@@ -10,13 +10,14 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import { Telmoni } from 'telmoni';
 
@@ -101,9 +102,15 @@ function shown(path: string, home: string): string {
   return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }
 
-/** The file to write: a link's target, so a `hooks.json` kept among someone's dotfiles stays there. */
+/** The file to write: a link's target, so a `hooks.json` kept among someone's dotfiles stays there, though it is not made yet. */
 function targetOf(path: string): string {
-  return existsSync(path) ? realpathSync(path) : path;
+  if (existsSync(path)) return realpathSync(path);
+  try {
+    if (lstatSync(path).isSymbolicLink()) return resolve(dirname(path), readlinkSync(path));
+  } catch {
+    // Nothing there at all.
+  }
+  return path;
 }
 
 /** What is in `path`, or nothing where it does not exist. */
@@ -156,6 +163,18 @@ function readFound(path: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * `config` as remove compares it: an event's list left empty counts as no list, since setup's entry in one the person
+ * kept empty takes the event with it, and a file of empty lists alone as none.
+ */
+function bare(config: HooksFile | string | undefined): HooksFile | string | undefined {
+  if (config === undefined || typeof config === 'string') return config;
+  const hooks = Object.fromEntries(Object.entries(config.hooks ?? {}).filter(([, entries]) => !(Array.isArray(entries) && entries.length === 0)));
+  const others = Object.keys(config).filter((key) => key !== 'version' && key !== 'hooks');
+  if (Object.keys(hooks).length === 0 && others.length === 0) return undefined;
+  return { ...config, hooks };
 }
 
 /** Whether two values read from JSON hold the same, whatever the order of their keys. */
@@ -251,7 +270,7 @@ export function remove(options: Options): number {
     const left = withoutOursIn(config);
     const found = readFound(kept);
     // As setup left it: what it found, to the byte. A file that held the plugin's hooks alone goes, unless it is a link, which would be left pointing at nothing.
-    if (found !== undefined && same(left, leftOf(found))) writeThrough(file, found);
+    if (found !== undefined && same(bare(left), bare(leftOf(found)))) writeThrough(file, found);
     else if (left === undefined && !lstatSync(file).isSymbolicLink()) rmSync(file, { force: true });
     else writeHooks(file, left ?? { version: 1, hooks: {} });
   }

@@ -61,6 +61,18 @@ var KEPT = {
 };
 var version = matching(/^[\w.+-]{1,64}$/);
 var EVERY = { generation_id: generation, model, model_id: model, cursor_version: version };
+function lineOf(raw) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return void 0;
+  const fields = raw;
+  const { id, at, hook_event_name: event } = fields;
+  if (typeof id !== "string" || typeof at !== "number" || !Number.isFinite(at) || !isEvent(event)) return void 0;
+  const line = { id, at, hook_event_name: event };
+  for (const [name, check] of Object.entries({ ...EVERY, ...KEPT[event] })) {
+    const value = check(fields[name]);
+    if (value !== void 0) line[name] = value;
+  }
+  return line;
+}
 function received(event, raw, at, id) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return void 0;
   const fields = raw;
@@ -107,6 +119,7 @@ export {
   isClosing,
   answerFor,
   isId,
+  lineOf,
   received,
   log,
   kindOf

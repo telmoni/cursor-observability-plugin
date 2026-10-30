@@ -1,7 +1,7 @@
 import {
   EVENTS,
   kindOf
-} from "./chunk-O4E2KSHU.mjs";
+} from "./chunk-65DK5VQ4.mjs";
 
 // src/hooks.ts
 var TIMEOUT_S = 10;

@@ -1,6 +1,6 @@
 import {
-  isEvent
-} from "./chunk-O4E2KSHU.mjs";
+  lineOf
+} from "./chunk-65DK5VQ4.mjs";
 
 // src/spool.ts
 import {
@@ -53,10 +53,8 @@ function linesIn(path) {
   const seen = /* @__PURE__ */ new Set();
   for (const piece of text.split("\n").slice(0, -1)) {
     if (piece.trim() === "") continue;
-    const line = parsed(piece);
-    if (line === null || line === void 0 || typeof line !== "object" || typeof line.id !== "string" || typeof line.at !== "number" || !Number.isFinite(line.at) || !isEvent(line.hook_event_name) || seen.has(line.id)) {
-      continue;
-    }
+    const line = lineOf(parsed(piece));
+    if (line === void 0 || seen.has(line.id)) continue;
     seen.add(line.id);
     lines.push(line);
   }
@@ -96,9 +94,16 @@ async function compact(dir, conversationId, drop) {
     throw error;
   }
   await new Promise((resolve) => setTimeout(resolve, GRACE_MS));
-  const kept = linesIn(aside).filter((line) => !drop.has(line.id));
+  const read = linesIn(aside);
+  const kept = read.filter((line) => !drop.has(line.id));
   if (kept.length > 0) {
     appendFileSync(spool, kept.map((line) => `${JSON.stringify(line)}
+`).join(""), { mode: 384 });
+  }
+  const seen = new Set(read.map((line) => line.id));
+  const late = linesIn(aside).filter((line) => !seen.has(line.id) && !drop.has(line.id));
+  if (late.length > 0) {
+    appendFileSync(spool, late.map((line) => `${JSON.stringify(line)}
 `).join(""), { mode: 384 });
   }
   rmSync(aside, { force: true });

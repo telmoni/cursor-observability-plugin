@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import { type Line, isEvent } from './input.js';
+import { type Line, lineOf } from './input.js';
 
 /** How long a hook that opened the spool before it was moved aside may take to finish its line. */
 const GRACE_MS = 100;
@@ -72,21 +72,10 @@ function linesIn(path: string): Line[] {
   // The last piece has no newline: a line still being written, left for later.
   for (const piece of text.split('\n').slice(0, -1)) {
     if (piece.trim() === '') continue;
-    const line = parsed(piece) as Partial<Line> | null | undefined;
-    if (
-      line === null ||
-      line === undefined ||
-      typeof line !== 'object' ||
-      typeof line.id !== 'string' ||
-      typeof line.at !== 'number' ||
-      !Number.isFinite(line.at) ||
-      !isEvent(line.hook_event_name) ||
-      seen.has(line.id)
-    ) {
-      continue;
-    }
+    const line = lineOf(parsed(piece));
+    if (line === undefined || seen.has(line.id)) continue;
     seen.add(line.id);
-    lines.push(line as Line);
+    lines.push(line);
   }
   return lines;
 }
@@ -134,9 +123,16 @@ export async function compact(dir: string, conversationId: string, drop: Readonl
   }
   // A hook that opened the spool just before it moved writes its line into the file now aside: it is read below with the rest.
   await new Promise((resolve) => setTimeout(resolve, GRACE_MS));
-  const kept = linesIn(aside).filter((line) => !drop.has(line.id));
+  const read = linesIn(aside);
+  const kept = read.filter((line) => !drop.has(line.id));
   if (kept.length > 0) {
     appendFileSync(spool, kept.map((line) => `${JSON.stringify(line)}\n`).join(''), { mode: 0o600 });
+  }
+  // A hook held up past the grace, on a loaded machine, may have finished its line in the aside since: read once more.
+  const seen = new Set(read.map((line) => line.id));
+  const late = linesIn(aside).filter((line) => !seen.has(line.id) && !drop.has(line.id));
+  if (late.length > 0) {
+    appendFileSync(spool, late.map((line) => `${JSON.stringify(line)}\n`).join(''), { mode: 0o600 });
   }
   rmSync(aside, { force: true });
 }

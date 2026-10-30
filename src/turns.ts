@@ -53,8 +53,8 @@ export function hasWork(turn: Turn): boolean {
   return turn.headless && lastOf(turn, 'sessionStart') !== undefined && sessionEndOf(turn) !== undefined;
 }
 
-/** How far a subagent's start may fall from its `Task`'s, as the record pairs the two. */
-const TASK_SLACK_MS = 2_000;
+/** How far outside a `Task` call's span a subagent's stop may fall and still be that call's work: the record pairs the two by it. */
+export const TASK_SLACK_MS = 2_000;
 
 /** A subagent's stop begun before the turn it came in, under no `Task` of the turn's begun with it: a background subagent's, of a turn before. */
 function lateStop(line: Line, span: { turn: Turn; start: number }): boolean {

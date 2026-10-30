@@ -136,6 +136,20 @@ const KEPT: Record<CursorEvent, Record<string, Check>> = {
 const version = matching(/^[\w.+-]{1,64}$/);
 const EVERY: Record<string, Check> = { generation_id: generation, model, model_id: model, cursor_version: version };
 
+/** A line read back from the spool, each field checked again as a hook checked it: a line torn or written by hand keeps nothing else. */
+export function lineOf(raw: unknown): Line | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const fields = raw as Record<string, unknown>;
+  const { id, at, hook_event_name: event } = fields;
+  if (typeof id !== 'string' || typeof at !== 'number' || !Number.isFinite(at) || !isEvent(event)) return undefined;
+  const line: Record<string, unknown> = { id, at, hook_event_name: event };
+  for (const [name, check] of Object.entries({ ...EVERY, ...KEPT[event] })) {
+    const value = check(fields[name]);
+    if (value !== undefined) line[name] = value;
+  }
+  return line as unknown as Line;
+}
+
 /** An event Cursor handed a hook: the conversation it belongs to, and the line kept of it. */
 export interface Received {
   conversationId: string;
