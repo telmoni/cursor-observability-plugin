@@ -171,11 +171,9 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps, wai
     }
     await compact(settings.dir, input.conversationId, spent);
     // A session's end is the conversation's last hook: what it could not send waits on another conversation's copy,
-    // its turns begun before that end alone; a stop of its own, the conversation reopened, sends them itself.
-    if (input.event === 'sessionEnd' && kept) {
-      markLeft(settings.dir, input.conversationId, { at: endedAt ?? Date.now(), destination: destinationOf(settings) });
-    } else if (!kept) {
-      markLeft(settings.dir, input.conversationId, undefined);
+    // its turns begun before that end alone. A stop never clears it: one that ran late, after the end, closes none of them.
+    if (input.event === 'sessionEnd') {
+      markLeft(settings.dir, input.conversationId, kept ? { at: endedAt ?? Date.now(), destination: destinationOf(settings) } : undefined);
     }
     reached = !kept;
   });

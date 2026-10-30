@@ -158,7 +158,7 @@ async function copy(handedOff, env) {
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-MEO3VKJC.mjs"), import("./send-LWC3BJQF.mjs")]);
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-BAUJ4EX4.mjs"), import("./send-LWC3BJQF.mjs")]);
     const deps = (prefix) => {
       const said = (line) => log(settings.dir, `${prefix} ${line}`);
       return { sender: (destination) => new Sender(destination, said), log: said };

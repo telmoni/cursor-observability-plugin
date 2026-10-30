@@ -127,6 +127,23 @@ describe('a copy', () => {
     expect(readSpool(settings.dir, IDE)).toEqual([]);
   });
 
+  it('keeps what a session’s end left when a stop of the conversation’s own comes after it', async () => {
+    const ide = fixture('ide');
+    const [, second, third] = stops(ide);
+    through(ide, 0, second!);
+    await hook('stop', IDE);
+    // The last turn, cut short by the session's end before its stop.
+    through(ide, second!, third! - 1);
+    through(ide, ide.length - 1, ide.length);
+    answers = [false];
+    await hook('sessionEnd', IDE);
+    await hook('stop', IDE);
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(true);
+    await sendLeft(HEADLESS, settings, () => depsOf());
+    expect(sent.map((run) => run.runId).at(-1)).toBe(runIdOf(IDE, 'a1b2c3d4-0003-4a00-8000-000000000003'));
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(false);
+  });
+
   it('sends of a conversation reopened since its end only the turns begun before it, its live turn left whole', async () => {
     const ide = fixture('ide');
     through(ide, 0, ide.length);

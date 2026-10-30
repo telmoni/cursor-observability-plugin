@@ -460,10 +460,8 @@ async function sync(input, settings, deps, waitFor) {
       }
     }
     await compact(settings.dir, input.conversationId, spent);
-    if (input.event === "sessionEnd" && kept) {
-      markLeft(settings.dir, input.conversationId, { at: endedAt ?? Date.now(), destination: destinationOf(settings) });
-    } else if (!kept) {
-      markLeft(settings.dir, input.conversationId, void 0);
+    if (input.event === "sessionEnd") {
+      markLeft(settings.dir, input.conversationId, kept ? { at: endedAt ?? Date.now(), destination: destinationOf(settings) } : void 0);
     }
     reached = !kept;
   });
