@@ -8,7 +8,7 @@ import {
 import {
   append,
   sweep
-} from "./chunk-OOEEN7KM.mjs";
+} from "./chunk-3CZQYDNL.mjs";
 import {
   answerFor,
   isClosing,
@@ -157,14 +157,19 @@ async function copy(handedOff, env) {
     if (input === void 0) return;
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
-    const write = (line) => log(settings.dir, `${tagged} ${line}`);
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sync }, { Sender }] = await Promise.all([import("./session-KTRO2DOZ.mjs"), import("./send-GLYPC4OF.mjs")]);
-    await sync(input, settings, { sender: (destination) => new Sender(destination, write), log: write });
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-BVXNUAGQ.mjs"), import("./send-GLYPC4OF.mjs")]);
+    const deps = (prefix) => {
+      const said = (line) => log(settings.dir, `${prefix} ${line}`);
+      return { sender: (destination) => new Sender(destination, said), log: said };
+    };
+    if (await sync(input, settings, deps(tagged))) {
+      await sendLeft(input.conversationId, settings, (other) => deps(`sessionEnd ${other.slice(0, 8)}:`));
+    }
   } catch (error) {
     log(settings.dir, tag === void 0 ? `failed: ${kindOf(error)}` : `${tag} failed: ${kindOf(error)}`);
   } finally {
-    sweep(settings.dir, Date.now());
+    sweep(settings.dir, Date.now(), (line) => log(settings.dir, line));
   }
 }
 async function hook(args2, script, env = process.env) {

@@ -15,7 +15,7 @@ import {
 import { join } from "path";
 var GRACE_MS = 100;
 var EXPIRY_MS = 7 * 24 * 60 * 60 * 1e3;
-var CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside(?:\.\d+)?)?|json(?:\.(?:\d+\.)?tmp)?|lock)$/;
+var CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside(?:\.\d+)?)?|json(?:\.(?:\d+\.)?tmp)?|lock|left)$/;
 function spoolOf(dir, conversationId) {
   return join(dir, `${conversationId}.jsonl`);
 }
@@ -103,7 +103,8 @@ async function compact(dir, conversationId, drop) {
   }
   rmSync(aside, { force: true });
 }
-function sweep(dir, now) {
+function sweep(dir, now, log = () => {
+}) {
   let names;
   try {
     names = readdirSync(dir);
@@ -114,7 +115,10 @@ function sweep(dir, now) {
     if (!CONVERSATION_FILE.test(name)) continue;
     const path = join(dir, name);
     try {
-      if (now - statSync(path).mtimeMs > EXPIRY_MS) rmSync(path, { force: true });
+      if (now - statSync(path).mtimeMs <= EXPIRY_MS) continue;
+      const unsent = name.endsWith(".jsonl") ? linesIn(path).length : 0;
+      if (unsent > 0) log(`${name.split(".")[0].slice(0, 8)}: ${unsent} lines of a conversation untouched for a week deleted, unsent`);
+      rmSync(path, { force: true });
     } catch {
     }
   }

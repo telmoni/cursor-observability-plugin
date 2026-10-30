@@ -8,7 +8,7 @@ import type { Line } from '../src/input';
 import { log } from '../src/log';
 import { runIdOf } from '../src/record';
 import { Sender } from '../src/send';
-import { type Deps, type HookInput, sync } from '../src/session';
+import { type Deps, type HookInput, sendLeft, sync } from '../src/session';
 import type { Settings } from '../src/settings';
 import { append, compact, readSpool, recover, sweep } from '../src/spool';
 import { readState, withLock } from '../src/state';
@@ -44,7 +44,23 @@ function through(steps: readonly Step[], from: number, count: number): void {
   replay(steps.slice(from, count), settings.dir, BASE, ids);
 }
 
-function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}, more: Partial<Deps> = {}, at?: number): Promise<void> {
+function depsOf(more: Partial<Deps> = {}): Deps {
+  return {
+    sender: () => ({
+      send: (record) => {
+        attempts++;
+        const ok = answers.shift() ?? true;
+        if (ok) sent.push(record);
+        return Promise.resolve(ok);
+      },
+      close: () => Promise.resolve(),
+    }),
+    log: (line) => void logged.push(line),
+    ...more,
+  };
+}
+
+function hook(event: HookInput['event'], conversationId: string, overrides: Partial<Settings> = {}, more: Partial<Deps> = {}, at?: number): Promise<boolean> {
   const input: HookInput = { event, conversationId };
   if (at !== undefined) input.at = at;
   return sync(input, { ...settings, ...overrides }, {
@@ -93,6 +109,33 @@ describe('a copy', () => {
     await hook('sessionEnd', IDE);
     expect(sent).toHaveLength(3);
     expect(existsSync(join(settings.dir, `${IDE}.jsonl`))).toBe(false);
+  });
+
+  it('leaves what a session’s end could not send to the next copy of any conversation, which sends it', async () => {
+    const ide = fixture('ide');
+    through(ide, 0, ide.length);
+    answers = [false];
+    expect(await hook('sessionEnd', IDE)).toBe(false);
+    expect(sent).toEqual([]);
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(true);
+    const headless = fixture('headless');
+    through(headless, 0, headless.length);
+    expect(await hook('sessionEnd', HEADLESS)).toBe(true);
+    await sendLeft(HEADLESS, settings, () => depsOf());
+    expect(sent.filter((run) => run.sessionId === IDE)).toHaveLength(3);
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(false);
+    expect(readSpool(settings.dir, IDE)).toEqual([]);
+  });
+
+  it('keeps what a session’s end left while the platform stays away', async () => {
+    const ide = fixture('ide');
+    through(ide, 0, ide.length);
+    answers = [false, false];
+    await hook('sessionEnd', IDE);
+    await sendLeft(HEADLESS, settings, () => depsOf());
+    expect(sent).toEqual([]);
+    expect(existsSync(join(settings.dir, `${IDE}.left`))).toBe(true);
+    expect(readSpool(settings.dir, IDE).length).toBeGreaterThan(0);
   });
 
   it('leaves the turn still running to a later hook', async () => {
@@ -476,8 +519,11 @@ describe('the spool', () => {
     for (const name of readdirSync(settings.dir).filter((name) => name !== 'new.jsonl')) {
       utimesSync(join(settings.dir, name), weekAgo, weekAgo);
     }
-    sweep(settings.dir, Date.now());
+    const said: string[] = [];
+    sweep(settings.dir, Date.now(), (line) => void said.push(line));
     expect(readdirSync(settings.dir).sort()).toEqual([...kept, 'new.jsonl'].sort());
+    // What went unsent is said, by count alone.
+    expect(said).toEqual(['old: 1 lines of a conversation untouched for a week deleted, unsent']);
   });
 
   it('reads a line once though a compaction cut short wrote it twice', () => {

@@ -23,7 +23,7 @@ const GRACE_MS = 100;
 const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** A conversation's files, named by its id: its spool, its state, its lock, and each written aside. */
-const CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside(?:\.\d+)?)?|json(?:\.(?:\d+\.)?tmp)?|lock)$/;
+const CONVERSATION_FILE = /^[A-Za-z0-9_-]{1,128}\.(?:jsonl(?:\.aside(?:\.\d+)?)?|json(?:\.(?:\d+\.)?tmp)?|lock|left)$/;
 
 function spoolOf(dir: string, conversationId: string): string {
   return join(dir, `${conversationId}.jsonl`);
@@ -145,7 +145,7 @@ export async function compact(dir: string, conversationId: string, drop: Readonl
  * Deletes what conversations untouched for a week left behind: a turn whose hooks never ended it, or one Telmoni never
  * took, would otherwise stay for good. The log and what setup keeps are no conversation's.
  */
-export function sweep(dir: string, now: number): void {
+export function sweep(dir: string, now: number, log: (line: string) => void = () => {}): void {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -156,7 +156,11 @@ export function sweep(dir: string, now: number): void {
     if (!CONVERSATION_FILE.test(name)) continue;
     const path = join(dir, name);
     try {
-      if (now - statSync(path).mtimeMs > EXPIRY_MS) rmSync(path, { force: true });
+      if (now - statSync(path).mtimeMs <= EXPIRY_MS) continue;
+      // Said, by count alone: a turn Telmoni never took goes for good here.
+      const unsent = name.endsWith('.jsonl') ? linesIn(path).length : 0;
+      if (unsent > 0) log(`${name.split('.')[0]!.slice(0, 8)}: ${unsent} lines of a conversation untouched for a week deleted, unsent`);
+      rmSync(path, { force: true });
     } catch {
       // Gone already.
     }

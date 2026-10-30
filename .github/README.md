@@ -61,7 +61,7 @@ Cursor hands its hooks your email, your prompts and its replies, each tool's inp
 
 ## When something is wrong
 
-The hooks never block Cursor, and slow it no more than Node takes to start: each answers at once, and a turn is sent by a detached process once it has ended. Anything that went wrong is a line in `~/.cursor/telmoni/hook.log`, naming what kind of thing went wrong and never anything from your conversation. A turn Telmoni could not take — out of reach, busy, its database failing it, or refusing the key — is sent again when the conversation's next turn ends, and one sent again within the hour is stored once. A turn Telmoni took in part, or refused for good, is logged and not sent again.
+The hooks never block Cursor, and slow it no more than Node takes to start: each answers at once, and a turn is sent by a detached process once it has ended. Anything that went wrong is a line in `~/.cursor/telmoni/hook.log`, naming what kind of thing went wrong and never anything from your conversation. A turn Telmoni could not take — out of reach, busy, its database failing it, or refusing the key — is sent again when the conversation's next turn ends, or, once its session has ended, when any conversation's next turn ends, and one sent again within the hour is stored once. A turn Telmoni took in part, or refused for good, is logged and not sent again.
 
 ## Uninstall
 

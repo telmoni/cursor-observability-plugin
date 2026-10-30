@@ -9,6 +9,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import { registersProject, registersUser } from './hooks.js';
 import { type CursorEvent, answerFor, isClosing, isEvent, isId, received } from './input.js';
 import { kindOf, log } from './log.js';
+import type { Destination } from './send.js';
 import type { HookInput } from './session.js';
 import { type Settings, pathsOf, settingsFrom } from './settings.js';
 import { append, sweep } from './spool.js';
@@ -184,14 +185,20 @@ async function copy(handedOff: string, env: NodeJS.ProcessEnv): Promise<void> {
     if (input === undefined) return;
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
-    const write = (line: string): void => log(settings.dir, `${tagged} ${line}`);
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sync }, { Sender }] = await Promise.all([import('./session.js'), import('./send.js')]);
-    await sync(input, settings, { sender: (destination) => new Sender(destination, write), log: write });
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import('./session.js'), import('./send.js')]);
+    const deps = (prefix: string) => {
+      const said = (line: string): void => log(settings.dir, `${prefix} ${line}`);
+      return { sender: (destination: Destination) => new Sender(destination, said), log: said };
+    };
+    // A copy that reached the platform sends what other conversations' session ends could not.
+    if (await sync(input, settings, deps(tagged))) {
+      await sendLeft(input.conversationId, settings, (other) => deps(`sessionEnd ${other.slice(0, 8)}:`));
+    }
   } catch (error) {
     log(settings.dir, tag === undefined ? `failed: ${kindOf(error)}` : `${tag} failed: ${kindOf(error)}`);
   } finally {
-    sweep(settings.dir, Date.now());
+    sweep(settings.dir, Date.now(), (line) => log(settings.dir, line));
   }
 }
 

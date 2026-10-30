@@ -11,7 +11,7 @@ import { recordOf } from './record.js';
 import type { Destination } from './send.js';
 import type { Settings } from './settings.js';
 import { compact, readSpool, recover } from './spool.js';
-import { type ConversationState, SENT_KEPT, readState, withLock, writeState } from './state.js';
+import { type ConversationState, SENT_KEPT, leftOf, markLeft, readState, withLock, writeState } from './state.js';
 import { type Turn, byTime, cut, ended, hasWork } from './turns.js';
 
 export interface HookInput {
@@ -53,10 +53,22 @@ async function sendAlone(deps: Deps, destination: Destination, record: RunRecord
   }
 }
 
-export async function sync(input: HookInput, settings: Settings, deps: Deps): Promise<void> {
+/** What other conversations' session ends left, the longest waiting first, until one is still not taken. */
+export async function sendLeft(own: string, settings: Settings, depsFor: (conversationId: string) => Deps): Promise<void> {
+  for (const other of leftOf(settings.dir, own)) {
+    if (!(await sync({ event: 'sessionEnd', conversationId: other }, settings, depsFor(other), 0))) return;
+  }
+}
+
+/**
+ * Sends the conversation's ended turns; whether every one was taken. `waitMs`, where given, is how long to wait for its
+ * lock: none, for a conversation another copy sends for.
+ */
+export async function sync(input: HookInput, settings: Settings, deps: Deps, waitFor?: number): Promise<boolean> {
   const { apiKey } = settings;
   // No hook need follow the session's end: its copy outwaits a live holder, whose time only its sends bound.
-  const waitMs = input.event === 'sessionEnd' ? Number.POSITIVE_INFINITY : (deps.lockWaitMs ?? LOCK_WAIT_MS);
+  const waitMs = waitFor ?? (input.event === 'sessionEnd' ? Number.POSITIVE_INFINITY : (deps.lockWaitMs ?? LOCK_WAIT_MS));
+  let reached = false;
   const locked = await withLock(settings.dir, input.conversationId, waitMs, async () => {
     let state: ConversationState;
     try {
@@ -89,7 +101,11 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
       );
     recover(settings.dir, input.conversationId);
     const lines = readSpool(settings.dir, input.conversationId);
-    if (lines.length === 0) return;
+    if (lines.length === 0) {
+      reached = true;
+      if (input.event === 'sessionEnd') markLeft(settings.dir, input.conversationId, false);
+      return;
+    }
     const sent = new Set(state.sent);
     const { turns, loose } = cut(lines, input.conversationId);
     const sessionEnds = lines.filter((line) => line.hook_event_name === 'sessionEnd').sort(byTime);
@@ -114,12 +130,16 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
     }
     const destination: Destination = { endpoint: settings.endpoint, apiKey };
     let since = 0;
+    let kept = false;
     for (const turn of due) {
       // The first session's end after the turn's last line, which cut it short.
       const last = turn.lines.at(-1)!.at;
       const sessionEnd = sessionEnds.find((line) => line.at >= last);
       const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
-      if (record !== undefined && !(await sendAlone(deps, destination, record, refused))) break;
+      if (record !== undefined && !(await sendAlone(deps, destination, record, refused))) {
+        kept = true;
+        break;
+      }
       state.sent.push(turn.id);
       writeState(settings.dir, input.conversationId, state);
       for (const line of turn.lines) spent.add(line.id);
@@ -131,6 +151,10 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps): Pr
       }
     }
     await compact(settings.dir, input.conversationId, spent);
+    // A session's end is the conversation's last hook: what it could not send waits on another conversation's copy.
+    if (input.event === 'sessionEnd') markLeft(settings.dir, input.conversationId, kept);
+    reached = !kept;
   });
-  if (!locked) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");
+  if (!locked && waitFor !== 0) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");
+  return reached;
 }

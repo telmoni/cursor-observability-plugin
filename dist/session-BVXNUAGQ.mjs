@@ -2,7 +2,7 @@ import {
   compact,
   readSpool,
   recover
-} from "./chunk-OOEEN7KM.mjs";
+} from "./chunk-3CZQYDNL.mjs";
 import {
   kindOf
 } from "./chunk-QMSA2DQT.mjs";
@@ -243,10 +243,30 @@ function recordOf(turn, context) {
 
 // src/state.ts
 import { randomUUID } from "crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
 var SENT_KEPT = 64;
+function markLeft(dir, conversationId, left) {
+  const path = join(dir, `${conversationId}.left`);
+  if (left) writeFileSync(path, "", { mode: 384 });
+  else rmSync(path, { force: true });
+}
+function leftOf(dir, except) {
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+  }
+  const waited = (name) => {
+    try {
+      return statSync(join(dir, name)).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  return names.filter((name) => /^[A-Za-z0-9_-]{1,128}\.left$/.test(name)).sort((a, b) => waited(a) - waited(b) || a.localeCompare(b)).map((name) => name.slice(0, -".left".length)).filter((conversationId) => conversationId !== except);
+}
 function readState(dir, conversationId) {
   let text;
   try {
@@ -337,9 +357,15 @@ async function sendAlone(deps, destination, record, refused) {
     await sender.close();
   }
 }
-async function sync(input, settings, deps) {
+async function sendLeft(own, settings, depsFor) {
+  for (const other of leftOf(settings.dir, own)) {
+    if (!await sync({ event: "sessionEnd", conversationId: other }, settings, depsFor(other), 0)) return;
+  }
+}
+async function sync(input, settings, deps, waitFor) {
   const { apiKey } = settings;
-  const waitMs = input.event === "sessionEnd" ? Number.POSITIVE_INFINITY : deps.lockWaitMs ?? LOCK_WAIT_MS;
+  const waitMs = waitFor ?? (input.event === "sessionEnd" ? Number.POSITIVE_INFINITY : deps.lockWaitMs ?? LOCK_WAIT_MS);
+  let reached = false;
   const locked = await withLock(settings.dir, input.conversationId, waitMs, async () => {
     let state;
     try {
@@ -369,7 +395,11 @@ async function sync(input, settings, deps) {
     );
     recover(settings.dir, input.conversationId);
     const lines = readSpool(settings.dir, input.conversationId);
-    if (lines.length === 0) return;
+    if (lines.length === 0) {
+      reached = true;
+      if (input.event === "sessionEnd") markLeft(settings.dir, input.conversationId, false);
+      return;
+    }
     const sent = new Set(state.sent);
     const { turns, loose } = cut(lines, input.conversationId);
     const sessionEnds = lines.filter((line) => line.hook_event_name === "sessionEnd").sort(byTime);
@@ -391,11 +421,15 @@ async function sync(input, settings, deps) {
     }
     const destination = { endpoint: settings.endpoint, apiKey };
     let since = 0;
+    let kept = false;
     for (const turn of due) {
       const last = turn.lines.at(-1).at;
       const sessionEnd = sessionEnds.find((line) => line.at >= last);
       const record = recordOf(turn, { conversationId: input.conversationId, sessionEnd });
-      if (record !== void 0 && !await sendAlone(deps, destination, record, refused)) break;
+      if (record !== void 0 && !await sendAlone(deps, destination, record, refused)) {
+        kept = true;
+        break;
+      }
       state.sent.push(turn.id);
       writeState(settings.dir, input.conversationId, state);
       for (const line of turn.lines) spent.add(line.id);
@@ -406,9 +440,13 @@ async function sync(input, settings, deps) {
       }
     }
     await compact(settings.dir, input.conversationId, spent);
+    if (input.event === "sessionEnd") markLeft(settings.dir, input.conversationId, kept);
+    reached = !kept;
   });
-  if (!locked) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");
+  if (!locked && waitFor !== 0) deps.log("busy: another copy of this conversation held the lock past its wait; the next stop or the session's end sends what is left");
+  return reached;
 }
 export {
+  sendLeft,
   sync
 };

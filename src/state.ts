@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -24,6 +24,38 @@ export interface ConversationState {
 
 /** Only a turn just sent can have a line still to come. */
 export const SENT_KEPT = 64;
+
+/**
+ * Marks, or unmarks, a conversation whose session's end met a turn the platform did not take: that end is its last hook,
+ * so the next copy of any conversation sends what it left.
+ */
+export function markLeft(dir: string, conversationId: string, left: boolean): void {
+  const path = join(dir, `${conversationId}.left`);
+  if (left) writeFileSync(path, '', { mode: 0o600 });
+  else rmSync(path, { force: true });
+}
+
+/** The conversations other than `except` whose session ended with turns not taken, the longest waiting first. */
+export function leftOf(dir: string, except: string): string[] {
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    // Nothing kept yet.
+  }
+  const waited = (name: string): number => {
+    try {
+      return statSync(join(dir, name)).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  return names
+    .filter((name) => /^[A-Za-z0-9_-]{1,128}\.left$/.test(name))
+    .sort((a, b) => waited(a) - waited(b) || a.localeCompare(b))
+    .map((name) => name.slice(0, -'.left'.length))
+    .filter((conversationId) => conversationId !== except);
+}
 
 /** The conversation's state: afresh where none was saved; one that cannot be read throws, for the copy to say so. */
 export function readState(dir: string, conversationId: string): ConversationState {
