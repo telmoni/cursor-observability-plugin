@@ -382,7 +382,7 @@ async function sync(input, settings, deps, waitFor) {
       writeState(settings.dir, input.conversationId, state);
     };
     if (settings.keyFileProblem !== void 0) {
-      once("warnedKeyFile", `~/.cursor/telmoni.json not used (${settings.keyFileProblem}): fix it, or move it aside and run telmoni-cursor-observability setup, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then`);
+      once("warnedKeyFile", `~/.cursor/telmoni.json not used (${settings.keyFileProblem}): fix it, or move it aside and run telmoni-cursor-observability setup, or set TELMONI_API_KEY, with TELMONI_ENDPOINT for a Telmoni of your own; nothing is sent until then`);
       return;
     }
     if (apiKey === void 0) {

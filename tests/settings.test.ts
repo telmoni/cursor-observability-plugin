@@ -29,10 +29,12 @@ function keyFile(content: unknown, mode = 0o600): void {
 }
 
 describe('the key and the endpoint', () => {
-  it('come from the SDKs’ own variables first, the file read only for what they leave unset', () => {
+  it('come as a pair, the environment’s key with the environment’s endpoint, else the file’s with the file’s', () => {
     keyFile({ apiKey: 'tm_file', endpoint: 'https://file.example' });
     expect(settingsFrom({ TELMONI_API_KEY: 'tm_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://env.example', dir: dir() });
-    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://file.example', dir: dir() });
+    // The environment's key never goes to the file's endpoint, nor the file's key to the environment's.
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: undefined, dir: dir() });
+    expect(settingsFrom({ TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'tm_file', endpoint: 'https://file.example', dir: dir() });
     expect(settingsFrom({}, home.path)).toStrictEqual({ apiKey: 'tm_file', endpoint: 'https://file.example', dir: dir() });
   });
 
@@ -41,9 +43,7 @@ describe('the key and the endpoint', () => {
       keyFile({ apiKey: 'tm_file', endpoint: 'https://elsewhere.example' }, mode);
       expect(settingsFrom({}, home.path)).toStrictEqual({ apiKey: undefined, endpoint: undefined, dir: dir(), keyFileProblem: 'open to other users; chmod 600 it' });
     }
-    // With the key in the environment, the file still names what it may have held, the endpoint among it.
-    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ apiKey: 'tm_env', endpoint: undefined, keyFileProblem: 'open to other users; chmod 600 it' });
-    // Both in the environment, the file is never read.
+    // With the key in the environment, the file is never read: its endpoint was never the environment key's.
     expect(settingsFrom({ TELMONI_API_KEY: 'tm_env', TELMONI_ENDPOINT: 'https://env.example' }, home.path)).toStrictEqual({ apiKey: 'tm_env', endpoint: 'https://env.example', dir: dir() });
     keyFile({ apiKey: 'tm_file' }, 0o400);
     expect(settingsFrom({}, home.path).apiKey).toBe('tm_file');
@@ -60,7 +60,7 @@ describe('the key and the endpoint', () => {
       expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'endpoint empty or not a string' });
     }
     keyFile({ apiKey: '', endpoint: 'https://self.example' });
-    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
+    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
   });
 
   it('say by kind what is wrong with a file that is no key file', () => {

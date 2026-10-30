@@ -136,15 +136,11 @@ function readKeyFile(path) {
 function settingsFrom(env, home = homedir()) {
   const paths = pathsOf(home);
   const fromEnv = (name) => env[name]?.trim() || void 0;
-  let file;
-  const saved = () => file ??= readKeyFile(paths.keyFile);
-  const settings = {
-    apiKey: fromEnv("TELMONI_API_KEY") ?? saved().apiKey,
-    endpoint: fromEnv("TELMONI_ENDPOINT") ?? saved().endpoint,
-    dir: paths.dir
-  };
-  const problem = file?.problem;
-  if (problem !== void 0) settings.keyFileProblem = problem;
+  const apiKey = fromEnv("TELMONI_API_KEY");
+  if (apiKey !== void 0) return { apiKey, endpoint: fromEnv("TELMONI_ENDPOINT"), dir: paths.dir };
+  const file = readKeyFile(paths.keyFile);
+  const settings = { apiKey: file.apiKey, endpoint: file.endpoint, dir: paths.dir };
+  if (file.problem !== void 0) settings.keyFileProblem = file.problem;
   return settings;
 }
 

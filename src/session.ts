@@ -87,7 +87,7 @@ export async function sync(input: HookInput, settings: Settings, deps: Deps, wai
     };
     // The file passed over may have named the endpoint: the key never goes to the default in its place.
     if (settings.keyFileProblem !== undefined) {
-      once('warnedKeyFile', `~/.cursor/telmoni.json not used (${settings.keyFileProblem}): fix it, or move it aside and run telmoni-cursor-observability setup, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then`);
+      once('warnedKeyFile', `~/.cursor/telmoni.json not used (${settings.keyFileProblem}): fix it, or move it aside and run telmoni-cursor-observability setup, or set TELMONI_API_KEY, with TELMONI_ENDPOINT for a Telmoni of your own; nothing is sent until then`);
       return;
     }
     if (apiKey === undefined) {

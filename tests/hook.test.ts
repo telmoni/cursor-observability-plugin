@@ -225,13 +225,13 @@ describe('the hook', () => {
     }
   }, 15_000);
 
-  it.skipIf(process.platform === 'win32')('keeps nothing past a key file it passed over, though the key is in its environment', async () => {
+  it.skipIf(process.platform === 'win32')('keeps nothing past a key file it passed over, its key going nowhere', async () => {
     mkdirSync(join(home.path, '.cursor'), { recursive: true });
     const file = join(home.path, '.cursor', 'telmoni.json');
     writeFileSync(file, JSON.stringify({ apiKey: KEY, endpoint: 'https://telmoni.example.com' }));
     chmodSync(file, 0o644);
     const payload = JSON.stringify(fixture('ide')[2]!.payload);
-    expect(await run(['hook', 'postToolUse'], payload, { env: { TELMONI_API_KEY: KEY } })).toMatchObject({ code: 0, stdout: '{}' });
+    expect(await run(['hook', 'postToolUse'], payload)).toMatchObject({ code: 0, stdout: '{}' });
     expect(existsSync(join(telmoni(), `${IDE}.jsonl`))).toBe(false);
   });
 

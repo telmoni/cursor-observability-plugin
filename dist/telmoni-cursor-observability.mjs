@@ -4,7 +4,7 @@ import {
   registersProject,
   registersUser,
   settingsFrom
-} from "./chunk-UVWN2HCW.mjs";
+} from "./chunk-QBFVAX3X.mjs";
 import {
   append,
   sweep
@@ -158,7 +158,7 @@ async function copy(handedOff, env) {
     const tagged = `${input.event} ${input.conversationId.slice(0, 8)}:`;
     tag = tagged;
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-M7XI7A53.mjs"), import("./send-LWC3BJQF.mjs")]);
+    const [{ sendLeft, sync }, { Sender }] = await Promise.all([import("./session-OHFC244E.mjs"), import("./send-LWC3BJQF.mjs")]);
     const deps = (prefix) => {
       const said = (line) => log(settings.dir, `${prefix} ${line}`);
       return { sender: (destination) => new Sender(destination, said), log: said };
@@ -228,7 +228,7 @@ if (command === "hook") {
   await hook(args, SCRIPT);
   process.exitCode = 0;
 } else if ((command === "setup" || command === "remove") && args.every((arg) => arg === "--project")) {
-  const { askKey, nodeOf, remove, setup } = await import("./setup-5SKTNQCM.mjs");
+  const { askKey, nodeOf, remove, setup } = await import("./setup-PMNZGEY3.mjs");
   const options = {
     project: args.includes("--project"),
     home: homedir(),

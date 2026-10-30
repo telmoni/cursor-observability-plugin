@@ -97,14 +97,11 @@ export function readKeyFile(path: string): KeyFile {
 export function settingsFrom(env: NodeJS.ProcessEnv, home: string = homedir()): Settings {
   const paths = pathsOf(home);
   const fromEnv = (name: string): string | undefined => env[name]?.trim() || undefined;
-  let file: KeyFile | undefined;
-  const saved = (): KeyFile => (file ??= readKeyFile(paths.keyFile));
-  const settings: Settings = {
-    apiKey: fromEnv('TELMONI_API_KEY') ?? saved().apiKey,
-    endpoint: fromEnv('TELMONI_ENDPOINT') ?? saved().endpoint,
-    dir: paths.dir,
-  };
-  const problem = file?.problem;
-  if (problem !== undefined) settings.keyFileProblem = problem;
+  const apiKey = fromEnv('TELMONI_API_KEY');
+  // A key goes only to the endpoint named beside it: the environment's with the environment's, the file's with the file's.
+  if (apiKey !== undefined) return { apiKey, endpoint: fromEnv('TELMONI_ENDPOINT'), dir: paths.dir };
+  const file = readKeyFile(paths.keyFile);
+  const settings: Settings = { apiKey: file.apiKey, endpoint: file.endpoint, dir: paths.dir };
+  if (file.problem !== undefined) settings.keyFileProblem = file.problem;
   return settings;
 }

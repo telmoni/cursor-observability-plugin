@@ -404,14 +404,14 @@ describe('a copy', () => {
     expect(new Set(runIds).size).toBe(turns);
   }, 60_000);
 
-  it('sends nothing past a key file it passed over, though the key is in its environment, and says why once', async () => {
+  it('sends nothing past a key file it passed over, and says why once', async () => {
     const steps = fixture('ide');
     through(steps, 0, stops(steps)[0]!);
     // The file may have named a self-hosted endpoint: the key must not go to the default instead.
-    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
-    await hook('stop', IDE, { keyFileProblem: 'open to other users; chmod 600 it' });
+    await hook('stop', IDE, { apiKey: undefined, keyFileProblem: 'open to other users; chmod 600 it' });
+    await hook('stop', IDE, { apiKey: undefined, keyFileProblem: 'open to other users; chmod 600 it' });
     expect(sent).toEqual([]);
-    expect(logged).toEqual(['~/.cursor/telmoni.json not used (open to other users; chmod 600 it): fix it, or move it aside and run telmoni-cursor-observability setup, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then']);
+    expect(logged).toEqual(['~/.cursor/telmoni.json not used (open to other users; chmod 600 it): fix it, or move it aside and run telmoni-cursor-observability setup, or set TELMONI_API_KEY, with TELMONI_ENDPOINT for a Telmoni of your own; nothing is sent until then']);
   });
 
   it('closes a headless session’s turn at its end, with no stop', async () => {
