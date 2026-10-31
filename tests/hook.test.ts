@@ -199,9 +199,9 @@ describe('the hook', () => {
     await once(input, 'connect');
     try {
       // libuv makes a child's stdin blocking but leaves its fd 3 alone: the shell moves that socket onto stdin.
-      const child = spawn('/bin/sh', ['-c', 'exec "$0" "$1" hook stop <&3 3<&-', process.execPath, CLI], {
+      const child = spawn('/bin/sh', ['-c', 'exec "$NODE" "$CLI" hook stop <&3 3<&-'], {
         stdio: ['ignore', 'pipe', 'ignore', input],
-        env: { PATH: process.env['PATH'] ?? '', HOME: home.path },
+        env: { PATH: process.env['PATH'] ?? '', HOME: home.path, NODE: process.execPath, CLI },
       });
       const out: Buffer[] = [];
       child.stdout!.on('data', (chunk: Buffer) => out.push(chunk));

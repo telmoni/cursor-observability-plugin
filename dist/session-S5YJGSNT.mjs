@@ -8,7 +8,7 @@ import {
 } from "./chunk-65DK5VQ4.mjs";
 
 // src/session.ts
-import { createHash as createHash2 } from "crypto";
+import { createHmac } from "crypto";
 
 // src/record.ts
 import { createHash } from "crypto";
@@ -369,8 +369,7 @@ async function sendAlone(deps, destination, record, refused) {
   }
 }
 function destinationOf(settings) {
-  return createHash2("sha256").update(`${settings.endpoint ?? ""}
-${settings.apiKey ?? ""}`).digest("hex").slice(0, 16);
+  return createHmac("sha256", settings.apiKey ?? "").update(settings.endpoint ?? "").digest("hex").slice(0, 16);
 }
 async function sendLeft(own, settings, depsFor) {
   const destination = destinationOf(settings);

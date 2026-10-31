@@ -3,7 +3,7 @@
  * their lines taken out of the spool, so a turn is sent once and none is skipped.
  */
 
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
 import type { RunRecord } from 'telmoni';
 
@@ -56,11 +56,11 @@ async function sendAlone(deps: Deps, destination: Destination, record: RunRecord
 }
 
 /**
- * Where a key sends, as a digest of the endpoint and the key: what a conversation's left turns are held to, so another
+ * Where a key sends, as a MAC of the endpoint under the key: what a conversation's left turns are held to, so another
  * conversation's copy sends them nowhere they were not meant to go.
  */
 function destinationOf(settings: Pick<Settings, 'apiKey' | 'endpoint'>): string {
-  return createHash('sha256').update(`${settings.endpoint ?? ''}\n${settings.apiKey ?? ''}`).digest('hex').slice(0, 16);
+  return createHmac('sha256', settings.apiKey ?? '').update(settings.endpoint ?? '').digest('hex').slice(0, 16);
 }
 
 /**
